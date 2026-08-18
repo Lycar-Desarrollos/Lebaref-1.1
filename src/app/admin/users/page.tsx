@@ -48,28 +48,14 @@ import {
 import { ColumnDef, flexRender, getCoreRowModel, useReactTable } from "@tanstack/react-table";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { collection, onSnapshot, addDoc, updateDoc, deleteDoc, doc, serverTimestamp, setDoc, runTransaction } from "firebase/firestore";
-import { db, auth } from "@/lib/firebase";
+import { db, auth, getUserCreationAuth } from "@/lib/firebase";
 import { useAuth } from "@/hooks/use-auth";
 import { errorEmitter } from "@/lib/error-emitter";
 import { FirestorePermissionError } from "@/lib/errors";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Checkbox } from "@/components/ui/checkbox";
-import { getAuth, createUserWithEmailAndPassword, sendPasswordResetEmail, type User as FirebaseUser } from "firebase/auth";
-import { initializeApp, getApps } from "firebase/app";
-
-// IMPORTANT: We need a secondary Firebase app instance to create users
-// because the primary `auth` instance might be signed in as the admin,
-// and you can't create a new user while another is logged in on the same auth instance.
-const firebaseConfig = {
-  apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
-  authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
-  projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
-};
-
-const apps = getApps();
-const userCreationApp = apps.find(app => app.name === 'userCreation') || initializeApp(firebaseConfig, 'userCreation');
-const userCreationAuth = getAuth(userCreationApp);
+import { createUserWithEmailAndPassword, sendPasswordResetEmail } from "firebase/auth";
 
 const modules = [
     { id: 'projects', label: 'Proyectos' },
@@ -186,6 +172,7 @@ export default function UsersPage() {
             }
 
             let userCredential;
+            const userCreationAuth = getUserCreationAuth();
             try {
                 userCredential = await createUserWithEmailAndPassword(userCreationAuth, data.email, data.password);
             } catch (error: any) {

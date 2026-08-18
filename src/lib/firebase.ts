@@ -17,4 +17,10 @@ const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 const auth = getAuth(app);
 const db = getFirestore(app);
 
-export { app, auth, db };
+export function getUserCreationAuth() {
+  const apps = getApps();
+  const userCreationApp = apps.find(app => app.name === 'userCreation') || initializeApp(firebaseConfig, 'userCreation');
+  return getAuth(userCreationApp);
+}
+
+export { app, auth, db, firebaseConfig };
