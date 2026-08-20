@@ -9,7 +9,10 @@ service cloud.firestore {
     }
 
     function isAdmin() {
-      return request.auth != null && getUserData(request.auth.uid).role == 'admin';
+      return request.auth != null && (
+        request.auth.token.email == 'ydalimir12arevalo16@lebaref.com' ||
+        (getUserData(request.auth.uid) != null && getUserData(request.auth.uid).role == 'admin')
+      );
     }
 
     function hasPermission(module) {
@@ -26,12 +29,13 @@ service cloud.firestore {
     }
     
     match /users/{userId} {
-      allow list, write: if isAdmin();
-      allow get: if request.auth.uid == userId;
-      // User can update their own profile, but cannot change their role or userCode.
-      allow update: if request.auth.uid == userId && 
+      allow list, delete: if isAdmin();
+      allow get: if request.auth != null && (request.auth.uid == userId || isAdmin());
+      allow create: if request.auth != null && (request.auth.uid == userId || isAdmin());
+      // User can update their own profile, but cannot change their role or userCode unless admin.
+      allow update: if isAdmin() || (request.auth.uid == userId && 
                    request.resource.data.role == resource.data.role &&
-                   request.resource.data.userCode == resource.data.userCode;
+                   request.resource.data.userCode == resource.data.userCode);
     }
     
     match /projects/{projectId} {

@@ -51,7 +51,7 @@ const workOrderFormSchema = z.object({
   serviceAddress: z.string().optional().or(z.literal("")),
   responsable: z.string().optional().or(z.literal("")),
   date: z.string().min(1, "La fecha es requerida."),
-  status: z.enum(["Pendiente", "Asignada", "En Proceso", "En Espera", "Completada", "Cancelada", "Externa", "Completado", "Cancelado"]),
+  status: z.enum(["Pendiente", "Asignada", "En Proceso", "En Espera", "Completada", "Cancelada", "Completado", "Cancelado"]),
   technician: z.string().optional().or(z.literal("")),
   technicianId: z.string().optional().or(z.literal("")),
   tipoServicio: z.string().optional(),

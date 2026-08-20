@@ -350,6 +350,15 @@ export default function ConfiguracionPage() {
     }
   };
 
+  const hasCxcAccess =
+    userProfile?.role === "admin" ||
+    Boolean(
+      userProfile?.permissions?.accounts_receivable ||
+      userProfile?.permissions?.accounts_receivable_all ||
+      userProfile?.permissions?.accounts_receivable_own ||
+      userProfile?.permissions?.cuentas_por_cobrar
+    );
+
   if (isLoading || authIsLoading) {
     return (
       <div className="flex h-96 w-full items-center justify-center">
@@ -373,7 +382,7 @@ export default function ConfiguracionPage() {
                 Configuración del Sistema
               </h1>
               <p className="text-sm text-muted-foreground">
-                Personaliza de forma individual tu cuenta ({userProfile?.displayName || user?.email}), vistas de Inicio y CxC, tema y reportes.
+                Personaliza de forma individual tu cuenta ({userProfile?.displayName || user?.email}), vistas de Inicio{hasCxcAccess ? " y CxC" : ""}, tema y reportes.
               </p>
             </div>
           </div>
@@ -402,7 +411,7 @@ export default function ConfiguracionPage() {
           </TabsTrigger>
         </TabsList>
 
-        {/* ── TAB 1: VISTAS & RESÚMENES (UNIFICADO: INICIO + CXC POR SECCIONES) ─ */}
+        {/* ── TAB 1: VISTAS & RESÚMENES (INICIO + CXC CONDICIONAL) ─ */}
         <TabsContent value="vistas" className="space-y-8">
           
           {/* ═══════════════════════════════════════════════════════════════════
@@ -416,7 +425,7 @@ export default function ConfiguracionPage() {
                 </div>
                 <div>
                   <h3 className="text-base font-bold text-foreground">
-                    Sección 1: Pantalla de Inicio (Dashboard)
+                    {hasCxcAccess ? "Sección 1: Pantalla de Inicio (Dashboard)" : "Pantalla de Inicio (Dashboard)"}
                   </h3>
                   <p className="text-xs text-muted-foreground">
                     Personaliza los contadores, tarjetas y el rango de meses que se mostrarán en la pantalla principal.
@@ -502,180 +511,182 @@ export default function ConfiguracionPage() {
           </div>
 
           {/* ═══════════════════════════════════════════════════════════════════
-              SECCIÓN 2: CUENTAS POR COBRAR (CXC)
+              SECCIÓN 2: CUENTAS POR COBRAR (CXC) — SOLO SI TIENE PERMISOS
              ═══════════════════════════════════════════════════════════════════ */}
-          <div className="space-y-4 pt-4">
-            <div className="flex items-center justify-between border-b pb-3">
-              <div className="flex items-center gap-2.5">
-                <div className="p-2 bg-primary/10 text-primary rounded-xl">
-                  <DollarSign className="h-5 w-5" />
+          {hasCxcAccess && (
+            <div className="space-y-4 pt-4">
+              <div className="flex items-center justify-between border-b pb-3">
+                <div className="flex items-center gap-2.5">
+                  <div className="p-2 bg-primary/10 text-primary rounded-xl">
+                    <DollarSign className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-bold text-foreground">
+                      Sección 2: Cuentas por Cobrar (CxC)
+                    </h3>
+                    <p className="text-xs text-muted-foreground">
+                      Configura el período de corte, visualización del resumen de cartera y personalización de documentos PDF.
+                    </p>
+                  </div>
                 </div>
-                <div>
-                  <h3 className="text-base font-bold text-foreground">
-                    Sección 2: Cuentas por Cobrar (CxC)
-                  </h3>
-                  <p className="text-xs text-muted-foreground">
-                    Configura el período de corte, visualización del resumen de cartera y personalización de documentos PDF.
-                  </p>
-                </div>
+                <Badge variant="outline">
+                  Cuentas por Cobrar
+                </Badge>
               </div>
-              <Badge variant="outline">
-                Cuentas por Cobrar
-              </Badge>
-            </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-              {/* Default Month Period for CxC */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                {/* Default Month Period for CxC */}
+                <Card className="rounded-2xl border">
+                  <CardHeader>
+                    <CardTitle className="text-sm font-bold flex items-center gap-2">
+                      <Calendar className="h-4 w-4 text-primary" />
+                      Período de Meses Predeterminado en CxC
+                    </CardTitle>
+                    <CardDescription className="text-xs">
+                      Filtra automáticamente las cuentas por cobrar al mes o período deseado al entrar a CxC.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-2">
+                    <Label htmlFor="pref-default-period-cxc" className="text-xs font-bold text-foreground">
+                      Período de Corte Inicial
+                    </Label>
+                    <Select
+                      value={prefs.defaultPeriod || "este_mes"}
+                      onValueChange={(val: any) =>
+                        setPrefs((prev) => ({ ...prev, defaultPeriod: val }))
+                      }
+                    >
+                      <SelectTrigger id="pref-default-period-cxc" className="h-10 bg-card rounded-xl">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="este_mes">Este Mes (Mes en curso)</SelectItem>
+                        <SelectItem value="mes_anterior">Mes Anterior (Cierre de mes previo)</SelectItem>
+                        <SelectItem value="trimestre">Trimestre Actual</SelectItem>
+                        <SelectItem value="este_ano">Año en Curso (YTD)</SelectItem>
+                        <SelectItem value="historico">Histórico Global (Toda la cartera)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <p className="text-[11px] text-muted-foreground">
+                      La tabla y el estado de cartera se enfocarán en este período al ingresar con tu usuario.
+                    </p>
+                  </CardContent>
+                </Card>
+
+                {/* On-Screen Executive Summary in CxC */}
+                <Card className="rounded-2xl border">
+                  <CardHeader>
+                    <CardTitle className="text-sm font-bold flex items-center gap-2">
+                      <BarChart3 className="h-4 w-4 text-primary" />
+                      Visualización en Pantalla de CxC
+                    </CardTitle>
+                    <CardDescription className="text-xs">
+                      Controla si deseas desplegar el panel de gráficas y KPIs al entrar a CxC.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="flex items-center justify-between p-3 rounded-xl border bg-card hover:bg-muted/20 transition-all">
+                      <div className="space-y-0.5">
+                        <Label htmlFor="toggle-cxc-summary" className="text-xs font-bold text-foreground cursor-pointer">
+                          Mostrar Resumen Ejecutivo al Entrar
+                        </Label>
+                        <p className="text-[11px] text-muted-foreground">
+                          Despliega automáticamente las 4 tarjetas de saldo y métricas financieras en la página de CxC.
+                        </p>
+                      </div>
+                      <Switch
+                        id="toggle-cxc-summary"
+                        checked={prefs.showExecutiveSummaryByDefault !== false}
+                        onCheckedChange={(checked) =>
+                          setPrefs((prev) => ({ ...prev, showExecutiveSummaryByDefault: checked }))
+                        }
+                      />
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+
+              {/* Document PDF Report Customization */}
               <Card className="rounded-2xl border">
                 <CardHeader>
                   <CardTitle className="text-sm font-bold flex items-center gap-2">
-                    <Calendar className="h-4 w-4 text-primary" />
-                    Período de Meses Predeterminado en CxC
+                    <FileText className="h-4 w-4 text-indigo-600" />
+                    Personalización del Documento & Reporte PDF de CxC
                   </CardTitle>
                   <CardDescription className="text-xs">
-                    Filtra automáticamente las cuentas por cobrar al mes o período deseado al entrar a CxC.
+                    Define qué elementos saldrán al generar o descargar el reporte en formato PDF.
                   </CardDescription>
                 </CardHeader>
-                <CardContent className="space-y-2">
-                  <Label htmlFor="pref-default-period-cxc" className="text-xs font-bold text-foreground">
-                    Período de Corte Inicial
-                  </Label>
-                  <Select
-                    value={prefs.defaultPeriod || "este_mes"}
-                    onValueChange={(val: any) =>
-                      setPrefs((prev) => ({ ...prev, defaultPeriod: val }))
-                    }
-                  >
-                    <SelectTrigger id="pref-default-period-cxc" className="h-10 bg-card rounded-xl">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="este_mes">Este Mes (Mes en curso)</SelectItem>
-                      <SelectItem value="mes_anterior">Mes Anterior (Cierre de mes previo)</SelectItem>
-                      <SelectItem value="trimestre">Trimestre Actual</SelectItem>
-                      <SelectItem value="este_ano">Año en Curso (YTD)</SelectItem>
-                      <SelectItem value="historico">Histórico Global (Toda la cartera)</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <p className="text-[11px] text-muted-foreground">
-                    La tabla y el estado de cartera se enfocarán en este período al ingresar con tu usuario.
-                  </p>
-                </CardContent>
-              </Card>
-
-              {/* On-Screen Executive Summary in CxC */}
-              <Card className="rounded-2xl border">
-                <CardHeader>
-                  <CardTitle className="text-sm font-bold flex items-center gap-2">
-                    <BarChart3 className="h-4 w-4 text-primary" />
-                    Visualización en Pantalla de CxC
-                  </CardTitle>
-                  <CardDescription className="text-xs">
-                    Controla si deseas desplegar el panel de gráficas y KPIs al entrar a CxC.
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="flex items-center justify-between p-3 rounded-xl border bg-card hover:bg-muted/20 transition-all">
+                <CardContent className="space-y-3">
+                  <div className="flex items-center justify-between p-3.5 rounded-xl border bg-card hover:bg-muted/20 transition-all">
                     <div className="space-y-0.5">
-                      <Label htmlFor="toggle-cxc-summary" className="text-xs font-bold text-foreground cursor-pointer">
-                        Mostrar Resumen Ejecutivo al Entrar
+                      <Label htmlFor="toggle-pdf-metrics" className="text-xs font-bold text-foreground cursor-pointer">
+                        Incluir Resumen Ejecutivo y Bloques de Métricas en el PDF
                       </Label>
                       <p className="text-[11px] text-muted-foreground">
-                        Despliega automáticamente las 4 tarjetas de saldo y métricas financieras en la página de CxC.
+                        Por defecto desactivado (genera la tabla limpia). Solo saldrán las tarjetas de métricas en el documento si activas esta opción.
                       </p>
                     </div>
                     <Switch
-                      id="toggle-cxc-summary"
-                      checked={prefs.showExecutiveSummaryByDefault !== false}
+                      id="toggle-pdf-metrics"
+                      checked={prefs.includeMetricsInPdfReport === true}
                       onCheckedChange={(checked) =>
-                        setPrefs((prev) => ({ ...prev, showExecutiveSummaryByDefault: checked }))
+                        setPrefs((prev) => ({ ...prev, includeMetricsInPdfReport: checked }))
                       }
                     />
+                  </div>
+
+                  <div className="flex items-center justify-between p-3.5 rounded-xl border bg-card hover:bg-muted/20 transition-all">
+                    <div className="space-y-0.5">
+                      <Label htmlFor="toggle-pdf-logo" className="text-xs font-bold text-foreground cursor-pointer">
+                        Incluir Logotipo Oficial LEBAREF en el Encabezado
+                      </Label>
+                      <p className="text-[11px] text-muted-foreground">
+                        Inserta el logotipo oficial y membrete corporativo en la parte superior izquierda.
+                      </p>
+                    </div>
+                    <Switch
+                      id="toggle-pdf-logo"
+                      checked={prefs.includeLogoInPdfReport !== false}
+                      onCheckedChange={(checked) =>
+                        setPrefs((prev) => ({ ...prev, includeLogoInPdfReport: checked }))
+                      }
+                    />
+                  </div>
+
+                  <div className="flex items-center justify-between p-3.5 rounded-xl border bg-card hover:bg-muted/20 transition-all">
+                    <div className="space-y-0.5">
+                      <Label htmlFor="toggle-pdf-filters" className="text-xs font-bold text-foreground cursor-pointer">
+                        Incluir Detalle de Filtros y Período Aplicado
+                      </Label>
+                      <p className="text-[11px] text-muted-foreground">
+                        Imprime en el documento la línea descriptiva con el rango de fechas y clientes.
+                      </p>
+                    </div>
+                    <Switch
+                      id="toggle-pdf-filters"
+                      checked={prefs.includeFiltersInPdfReport !== false}
+                      onCheckedChange={(checked) =>
+                        setPrefs((prev) => ({ ...prev, includeFiltersInPdfReport: checked }))
+                      }
+                    />
+                  </div>
+
+                  <div className="pt-2 flex justify-end">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={handleDownloadSampleReportPDF}
+                      className="h-10 rounded-xl gap-2 font-medium border-slate-300 hover:bg-slate-100 text-slate-700 shadow-2xs"
+                    >
+                      <Download className="h-4 w-4 text-emerald-600" />
+                      Descargar Muestra de Reporte PDF
+                    </Button>
                   </div>
                 </CardContent>
               </Card>
             </div>
-
-            {/* Document PDF Report Customization */}
-            <Card className="rounded-2xl border">
-              <CardHeader>
-                <CardTitle className="text-sm font-bold flex items-center gap-2">
-                  <FileText className="h-4 w-4 text-indigo-600" />
-                  Personalización del Documento & Reporte PDF de CxC
-                </CardTitle>
-                <CardDescription className="text-xs">
-                  Define qué elementos saldrán al generar o descargar el reporte en formato PDF.
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                <div className="flex items-center justify-between p-3.5 rounded-xl border bg-card hover:bg-muted/20 transition-all">
-                  <div className="space-y-0.5">
-                    <Label htmlFor="toggle-pdf-metrics" className="text-xs font-bold text-foreground cursor-pointer">
-                      Incluir Resumen Ejecutivo y Bloques de Métricas en el PDF
-                    </Label>
-                    <p className="text-[11px] text-muted-foreground">
-                      Por defecto desactivado (genera la tabla limpia). Solo saldrán las tarjetas de métricas en el documento si activas esta opción.
-                    </p>
-                  </div>
-                  <Switch
-                    id="toggle-pdf-metrics"
-                    checked={prefs.includeMetricsInPdfReport === true}
-                    onCheckedChange={(checked) =>
-                      setPrefs((prev) => ({ ...prev, includeMetricsInPdfReport: checked }))
-                    }
-                  />
-                </div>
-
-                <div className="flex items-center justify-between p-3.5 rounded-xl border bg-card hover:bg-muted/20 transition-all">
-                  <div className="space-y-0.5">
-                    <Label htmlFor="toggle-pdf-logo" className="text-xs font-bold text-foreground cursor-pointer">
-                      Incluir Logotipo Oficial LEBAREF en el Encabezado
-                    </Label>
-                    <p className="text-[11px] text-muted-foreground">
-                      Inserta el logotipo oficial y membrete corporativo en la parte superior izquierda.
-                    </p>
-                  </div>
-                  <Switch
-                    id="toggle-pdf-logo"
-                    checked={prefs.includeLogoInPdfReport !== false}
-                    onCheckedChange={(checked) =>
-                      setPrefs((prev) => ({ ...prev, includeLogoInPdfReport: checked }))
-                    }
-                  />
-                </div>
-
-                <div className="flex items-center justify-between p-3.5 rounded-xl border bg-card hover:bg-muted/20 transition-all">
-                  <div className="space-y-0.5">
-                    <Label htmlFor="toggle-pdf-filters" className="text-xs font-bold text-foreground cursor-pointer">
-                      Incluir Detalle de Filtros y Período Aplicado
-                    </Label>
-                    <p className="text-[11px] text-muted-foreground">
-                      Imprime en el documento la línea descriptiva con el rango de fechas y clientes.
-                    </p>
-                  </div>
-                  <Switch
-                    id="toggle-pdf-filters"
-                    checked={prefs.includeFiltersInPdfReport !== false}
-                    onCheckedChange={(checked) =>
-                      setPrefs((prev) => ({ ...prev, includeFiltersInPdfReport: checked }))
-                    }
-                  />
-                </div>
-
-                <div className="pt-2 flex justify-end">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={handleDownloadSampleReportPDF}
-                    className="h-10 rounded-xl gap-2 font-medium border-slate-300 hover:bg-slate-100 text-slate-700 shadow-2xs"
-                  >
-                    <Download className="h-4 w-4 text-emerald-600" />
-                    Descargar Muestra de Reporte PDF
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
+          )}
 
         </TabsContent>
 

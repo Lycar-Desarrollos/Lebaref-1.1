@@ -79,7 +79,7 @@ export type WorkOrder = {
   equipoLugar?: string;
   observations?: string;
   items: WorkOrderItem[];
-  status: "Pendiente" | "Asignada" | "En Proceso" | "En Espera" | "Completada" | "Cancelada" | "Externa" | "Completado" | "Cancelado";
+  status: "Pendiente" | "Asignada" | "En Proceso" | "En Espera" | "Completada" | "Cancelada" | "Completado" | "Cancelado";
   technicianId?: string;
   technician?: string;
   userId: string;
@@ -98,7 +98,6 @@ const STATUS_CONFIG: Record<string, { label: string; className: string }> = {
   "Asignada":   { label: "Asignada",   className: "bg-sky-100 text-sky-700 border border-sky-300" },
   "En Proceso": { label: "En Proceso", className: "bg-blue-100 text-blue-700 border border-blue-300" },
   "En Espera":  { label: "En Espera",  className: "bg-orange-100 text-orange-700 border border-orange-300" },
-  "Externa":    { label: "OT Externa", className: "bg-purple-100 text-purple-800 border border-purple-300 font-semibold" },
   "Completada": { label: "Completada", className: "bg-green-100 text-green-700 border border-green-300" },
   "Cancelada":  { label: "Cancelada",  className: "bg-red-100 text-red-700 border border-red-300" },
   // Compatibilidad con OTs antiguas
@@ -117,11 +116,10 @@ const StatusBadge = ({ status }: { status: string }) => {
 
 // ─── Valid state transitions (irreversible states are terminal) ────────────────────────
 const STATE_TRANSITIONS: Record<string, string[]> = {
-  "Pendiente":  ["Asignada", "Externa", "Cancelada"],
-  "Asignada":   ["Pendiente", "En Proceso", "Externa", "Cancelada"],
-  "En Proceso": ["En Espera", "Externa", "Completada", "Cancelada"],
-  "En Espera":  ["En Proceso", "Externa", "Completada", "Cancelada"],
-  "Externa":    ["En Proceso", "Completada", "Cancelada"],
+  "Pendiente":  ["Asignada", "Cancelada"],
+  "Asignada":   ["Pendiente", "En Proceso", "Cancelada"],
+  "En Proceso": ["En Espera", "Completada", "Cancelada"],
+  "En Espera":  ["En Proceso", "Completada", "Cancelada"],
   // Estados terminales — sin transiciones posibles
   "Completada": [],
   "Cancelada":  [],
@@ -133,9 +131,8 @@ const STATE_TRANSITIONS: Record<string, string[]> = {
 const getValidTransitions = (current: string): string[] =>
   STATE_TRANSITIONS[current] ?? [];
 
-// ─── PDF Generator Profesional (Estándar & Externa, sin precios) ─────────────────────────────
-const downloadPDF = (ot: WorkOrder, isExternal = false) => {
-  const isExt = isExternal || ot.status === "Externa";
+// ─── PDF Generator Profesional (sin precios) ─────────────────────────────
+const downloadPDF = (ot: WorkOrder) => {
   const doc = new jsPDF();
   const pageHeight = doc.internal.pageSize.height;
   const pageWidth  = doc.internal.pageSize.width;
@@ -144,9 +141,9 @@ const downloadPDF = (ot: WorkOrder, isExternal = false) => {
   const topMargin    = 42;
   let lastPage = 1;
 
-  const primaryColor: [number, number, number] = isExt ? [88, 28, 135] : [30, 62, 98]; // Purple vs Navy Blue
-  const titleText = isExt ? "ORDEN DE TRABAJO EXTERNA" : "ORDEN DE TRABAJO";
-  const subtitleText = isExt ? "SUBCONTRATACIÓN / PROVEEDOR EXTERNO" : "CONTROL OPERATIVO DE SERVICIO";
+  const primaryColor: [number, number, number] = [30, 62, 98]; // Navy Blue
+  const titleText = "ORDEN DE TRABAJO";
+  const subtitleText = "CONTROL OPERATIVO DE SERVICIO";
 
   const drawHeader = () => {
     // Membrete Superior con Logo
@@ -198,17 +195,9 @@ const downloadPDF = (ot: WorkOrder, isExternal = false) => {
     `Tipo de Trabajo: ${ot.tipoTrabajo || "N/A"}`,
     `Equipo / Área: ${ot.equipoLugar || "N/A"}`,
     ot.quoteNumber ? `Cotización Origen: ${ot.quoteNumber}` : "Cotización: Directa",
-    isExt ? "Régimen: Subcontratado / Externo" : null,
   ].filter(Boolean).join("\n");
 
-  const companyInfo = isExt ? [
-    `Proveedor/Técnico: ${ot.technician || "Proveedor Externo Autorizado"}`,
-    `Supervisión Lebaref: ${ot.responsable || "Corporativo Lebaref"}`,
-    "",
-    "Corporativo: 990 101 0387",
-    "Correo: corporativo@lebaref.com",
-    "Mérida, Yucatán, México",
-  ].filter((v) => v !== null).join("\n") : [
+  const companyInfo = [
     `Técnico Asignado: ${ot.technician || "Por asignar"}`,
     `Responsable Lebaref: ${ot.responsable || "Corporativo Lebaref"}`,
     "",
@@ -217,11 +206,9 @@ const downloadPDF = (ot: WorkOrder, isExternal = false) => {
     "Oficinas: 990 101 0387 | corporativo@lebaref.com",
   ].filter((v) => v !== null).join("\n");
 
-  const colHeader3 = isExt ? "CONTRATISTA & SUPERVISIÓN" : "CONTACTO LEBAREF";
-
   autoTable(doc, {
     startY: 37,
-    head: [["DATOS DEL CLIENTE & SITIO", "DATOS DE LA ORDEN DE TRABAJO", colHeader3]],
+    head: [["DATOS DEL CLIENTE & SITIO", "DATOS DE LA ORDEN DE TRABAJO", "CONTACTO LEBAREF"]],
     body: [[clientInfo, otInfo, companyInfo]],
     theme: "grid",
     headStyles: { fontStyle: "bold", fillColor: [241, 245, 249], textColor: [15, 23, 42], fontSize: 7.5 },
@@ -253,7 +240,7 @@ const downloadPDF = (ot: WorkOrder, isExternal = false) => {
     theme: "grid",
     headStyles: { fillColor: primaryColor, textColor: 255, fontStyle: "bold", fontSize: 7.5 },
     bodyStyles: { fontSize: 7, overflow: "linebreak", textColor: [30, 41, 59] },
-    alternateRowStyles: { fillColor: isExt ? [250, 245, 255] : [248, 250, 252] },
+    alternateRowStyles: { fillColor: [248, 250, 252] },
     columnStyles: {
       0: { cellWidth: 14 },
       1: { cellWidth: "auto" },
@@ -294,44 +281,20 @@ const downloadPDF = (ot: WorkOrder, isExternal = false) => {
   doc.setDrawColor(180, 180, 180);
   doc.setLineWidth(0.5);
 
-  if (isExt) {
-    // 3 Firmas para OT Externa: Lebaref, Proveedor Externo y Cliente
-    // 1. Lebaref
-    doc.line(16, signY, 68, signY);
-    doc.setFontSize(7.5).setFont("helvetica", "bold").setTextColor(30, 41, 59);
-    doc.text("Autorizado por LEBAREF", 42, signY + 4, { align: "center" });
-    doc.setFontSize(6.5).setFont("helvetica", "normal").setTextColor(100, 116, 139);
-    doc.text("Supervisor / Responsable", 42, signY + 8, { align: "center" });
+  // 2 Firmas para OT Interna: Cliente y Técnico
+  // Firma del Cliente (Izquierda)
+  doc.line(28, signY, 92, signY);
+  doc.setFontSize(8).setFont("helvetica", "bold").setTextColor(30, 41, 59);
+  doc.text("Firma de Conformidad del Cliente", 60, signY + 4, { align: "center" });
+  doc.setFontSize(7).setFont("helvetica", "normal").setTextColor(100, 116, 139);
+  doc.text("Nombre, Firma y Fecha", 60, signY + 8, { align: "center" });
 
-    // 2. Proveedor Externo
-    doc.line(78, signY, 132, signY);
-    doc.setFontSize(7.5).setFont("helvetica", "bold").setTextColor(30, 41, 59);
-    doc.text("Proveedor / Técnico Externo", 105, signY + 4, { align: "center" });
-    doc.setFontSize(6.5).setFont("helvetica", "normal").setTextColor(100, 116, 139);
-    doc.text("Firma de Recepción y Ejecución", 105, signY + 8, { align: "center" });
-
-    // 3. Cliente
-    doc.line(142, signY, 194, signY);
-    doc.setFontSize(7.5).setFont("helvetica", "bold").setTextColor(30, 41, 59);
-    doc.text("Conformidad del Cliente", 168, signY + 4, { align: "center" });
-    doc.setFontSize(6.5).setFont("helvetica", "normal").setTextColor(100, 116, 139);
-    doc.text("Nombre, Firma y Sello", 168, signY + 8, { align: "center" });
-  } else {
-    // 2 Firmas para OT Interna: Cliente y Técnico
-    // Firma del Cliente (Izquierda)
-    doc.line(28, signY, 92, signY);
-    doc.setFontSize(8).setFont("helvetica", "bold").setTextColor(30, 41, 59);
-    doc.text("Firma de Conformidad del Cliente", 60, signY + 4, { align: "center" });
-    doc.setFontSize(7).setFont("helvetica", "normal").setTextColor(100, 116, 139);
-    doc.text("Nombre, Firma y Fecha", 60, signY + 8, { align: "center" });
-
-    // Firma del Técnico (Derecha)
-    doc.line(118, signY, 182, signY);
-    doc.setFontSize(8).setFont("helvetica", "bold").setTextColor(30, 41, 59);
-    doc.text("Firma del Técnico Responsable", 150, signY + 4, { align: "center" });
-    doc.setFontSize(7).setFont("helvetica", "normal").setTextColor(100, 116, 139);
-    doc.text("Técnico Especialista Lebaref", 150, signY + 8, { align: "center" });
-  }
+  // Firma del Técnico (Derecha)
+  doc.line(118, signY, 182, signY);
+  doc.setFontSize(8).setFont("helvetica", "bold").setTextColor(30, 41, 59);
+  doc.text("Firma del Técnico Responsable", 150, signY + 4, { align: "center" });
+  doc.setFontSize(7).setFont("helvetica", "normal").setTextColor(100, 116, 139);
+  doc.text("Técnico Especialista Lebaref", 150, signY + 8, { align: "center" });
 
   // Footer en cada página
   const totalPages = (doc as any).internal.getNumberOfPages();
@@ -342,14 +305,14 @@ const downloadPDF = (ot: WorkOrder, isExternal = false) => {
     doc.rect(0, pageHeight - 12, pageWidth, 12, "F");
     doc.setFontSize(6.5).setFont("helvetica", "normal").setTextColor(100, 116, 139);
     doc.text(
-      `LEBAREF | ${isExt ? "Orden de Trabajo Externa" : "Orden de Trabajo"} — Folio: ${ot.otNumber} — ${todayStr}`,
+      `LEBAREF | Orden de Trabajo — Folio: ${ot.otNumber} — ${todayStr}`,
       margin,
       pageHeight - 5
     );
     doc.text(`Página ${i} de ${totalPages}`, pageWidth - margin, pageHeight - 5, { align: "right" });
   }
 
-  const fileName = isExt ? `OT_Externa_${ot.otNumber}.pdf` : `${ot.otNumber}.pdf`;
+  const fileName = `${ot.otNumber}.pdf`;
   doc.save(fileName);
 };
 
@@ -500,26 +463,6 @@ export function WorkOrderManager() {
     }
   }, [toast]);
 
-  // Send to External Work Order & Auto-Generate PDF
-  const handleSendToExternal = useCallback(async (wo: WorkOrder) => {
-    try {
-      const ref = doc(db, "ordenes_de_trabajo", wo.id);
-      await updateDoc(ref, { status: "Externa" });
-      downloadPDF({ ...wo, status: "Externa" }, true);
-      toast({
-        title: "OT Enviada a Externa",
-        description: `La OT ${wo.otNumber} ahora está marcada como 'OT Externa' y se ha descargado el documento formal de subcontratación.`,
-      });
-    } catch (error) {
-      console.error("Error al enviar OT a externa:", error);
-      toast({
-        title: "Error al actualizar",
-        description: "No se pudo actualizar el estado de la OT a Externa.",
-        variant: "destructive",
-      });
-    }
-  }, [toast]);
-
   // Columns
   const columns: ColumnDef<WorkOrder>[] = useMemo(() => [
     {
@@ -542,7 +485,7 @@ export function WorkOrderManager() {
     },
     {
       accessorKey: "technician",
-      header: "Técnico / Proveedor",
+      header: "Técnico Asignado",
       cell: ({ row }) => row.original.technician || <span className="text-muted-foreground text-xs">Sin asignar</span>,
     },
     {
@@ -594,8 +537,8 @@ export function WorkOrderManager() {
               <DropdownMenuSeparator />
 
               {/* Descarga de PDF */}
-              <DropdownMenuItem onClick={() => downloadPDF(wo, false)} className="cursor-pointer">
-                <Download className="mr-2 h-4 w-4 text-blue-600" /> Descargar PDF (Interna)
+              <DropdownMenuItem onClick={() => downloadPDF(wo)} className="cursor-pointer">
+                <Download className="mr-2 h-4 w-4 text-blue-600" /> Descargar PDF
               </DropdownMenuItem>
 
               <DropdownMenuSeparator />
@@ -618,7 +561,6 @@ export function WorkOrderManager() {
                       const dotColors: Record<string, string> = {
                         "Pendiente": "bg-gray-400", "Asignada": "bg-sky-500",
                         "En Proceso": "bg-blue-500", "En Espera": "bg-orange-500",
-                        "Externa": "bg-purple-500",
                         "Completada": "bg-green-500", "Cancelada": "bg-red-500",
                       };
                       return (
@@ -665,7 +607,7 @@ export function WorkOrderManager() {
         );
       },
     },
-  ], [handleDelete, handleStatusChange, handleSendToExternal, router]);
+  ], [handleDelete, handleStatusChange, router]);
 
   const table = useReactTable({
     data: filteredWOs,
@@ -732,7 +674,6 @@ export function WorkOrderManager() {
                 <DropdownMenuRadioItem value="Asignada"><span className="flex items-center gap-2"><span className="h-2 w-2 rounded-full bg-sky-500"/>Asignada</span></DropdownMenuRadioItem>
                 <DropdownMenuRadioItem value="En Proceso"><span className="flex items-center gap-2"><span className="h-2 w-2 rounded-full bg-blue-500"/>En Proceso</span></DropdownMenuRadioItem>
                 <DropdownMenuRadioItem value="En Espera"><span className="flex items-center gap-2"><span className="h-2 w-2 rounded-full bg-orange-500"/>En Espera</span></DropdownMenuRadioItem>
-                <DropdownMenuRadioItem value="Externa"><span className="flex items-center gap-2"><span className="h-2 w-2 rounded-full bg-purple-500"/>OT Externa</span></DropdownMenuRadioItem>
                 <DropdownMenuRadioItem value="Completada"><span className="flex items-center gap-2"><span className="h-2 w-2 rounded-full bg-green-500"/>Completada</span></DropdownMenuRadioItem>
                 <DropdownMenuRadioItem value="Cancelada"><span className="flex items-center gap-2"><span className="h-2 w-2 rounded-full bg-red-500"/>Cancelada</span></DropdownMenuRadioItem>
               </DropdownMenuRadioGroup>
