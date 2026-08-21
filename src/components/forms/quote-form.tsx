@@ -31,8 +31,9 @@ import type { Quote } from "@/components/admin/quote-manager";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
 import type { Service } from "@/components/admin/service-manager";
-import { collection, onSnapshot } from "firebase/firestore";
+import { collection, onSnapshot, doc, getDoc, setDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
+import { useAuth } from "@/hooks/use-auth";
 import { SparePart } from "../admin/spare-parts-manager";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
 import { Command, CommandInput, CommandEmpty, CommandGroup, CommandItem, CommandList } from "@/components/ui/command";
@@ -145,6 +146,9 @@ export function QuoteForm({
   quote = null, 
   userRole 
 }: QuoteFormProps) {
+  const { user } = useAuth();
+  const [userCustomPolicies, setUserCustomPolicies] = useState<string | null>(null);
+  const [isSavingPolicies, setIsSavingPolicies] = useState(false);
   const [services, setServices] = useState<Service[]>([]);
   const [spareParts, setSpareParts] = useState<SparePart[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
@@ -154,6 +158,25 @@ export function QuoteForm({
   const [expandedItems, setExpandedItems] = useState<Record<number, boolean>>({});
   const isAdmin = userRole === 'admin';
   const { toast } = useToast();
+
+  // Cargar las garantías personalizadas del usuario autenticado
+  useEffect(() => {
+    if (!user?.uid) return;
+    const userDocRef = doc(db, "users", user.uid);
+    getDoc(userDocRef)
+      .then((snap) => {
+        if (snap.exists()) {
+          const data = snap.data();
+          const savedPolicies = data.customPolicies || data.preferences?.customPolicies;
+          if (savedPolicies && typeof savedPolicies === "string") {
+            setUserCustomPolicies(savedPolicies);
+          }
+        }
+      })
+      .catch((err) => {
+        console.warn("No se pudieron cargar las garantías del usuario:", err);
+      });
+  }, [user?.uid]);
 
   const toggleExpand = (index: number) => {
     setExpandedItems(prev => ({ ...prev, [index]: !prev[index] }));
@@ -289,16 +312,29 @@ export function QuoteForm({
           expirationDate: quote.expirationDate ? new Date(quote.expirationDate).toISOString().split('T')[0] : formatDate(expiration),
           rfc: quote.rfc || "",
           observations: quote.observations || "",
-          policies: quote.policies || defaultPolicies,
+          policies: quote.policies || userCustomPolicies || defaultPolicies,
           paymentTerms: quote.paymentTerms || defaultPaymentTerms,
           iva: quote.iva ?? 16,
         });
       } else {
-        // When creating a new quote, use the default values.
-        form.reset(defaultValues);
+        // When creating a new quote, use the default values with the user's custom policies.
+        form.reset({
+          ...defaultValues,
+          policies: userCustomPolicies || defaultPolicies,
+        });
       }
     }
-  }, [quote, isOpen, form]);
+  }, [quote, isOpen, form, userCustomPolicies]);
+
+  // Si las garantías del usuario se cargan después de abrir una nueva cotización, sincronizarlas
+  useEffect(() => {
+    if (isOpen && !quote && userCustomPolicies) {
+      const currentVal = form.getValues("policies");
+      if (!currentVal || currentVal === defaultPolicies) {
+        form.setValue("policies", userCustomPolicies);
+      }
+    }
+  }, [userCustomPolicies, isOpen, quote, form]);
 
   const items = form.watch('items');
   const ivaPercentage = form.watch('iva');
@@ -835,7 +871,61 @@ export function QuoteForm({
                   )} />
                   <FormField name="policies" control={form.control} render={({ field }) => (
                     <FormItem>
-                        <FormLabel>Garantías</FormLabel>
+                        <div className="flex items-center justify-between">
+                          <FormLabel>Garantías</FormLabel>
+                          <div className="flex items-center gap-1">
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              className="h-6 text-[11px] px-2 text-blue-600 dark:text-blue-400 hover:text-blue-700 hover:bg-blue-50 dark:hover:bg-blue-900/30"
+                              disabled={isSavingPolicies}
+                              onClick={async () => {
+                                if (!user?.uid) return;
+                                const currentPolicies = form.getValues("policies") || "";
+                                try {
+                                  setIsSavingPolicies(true);
+                                  const userDocRef = doc(db, "users", user.uid);
+                                  await setDoc(userDocRef, { customPolicies: currentPolicies }, { merge: true });
+                                  setUserCustomPolicies(currentPolicies);
+                                  toast({
+                                    title: "Garantías Guardadas",
+                                    description: "Estas garantías se usarán como tu plantilla predeterminada en tus próximas cotizaciones.",
+                                  });
+                                } catch (error) {
+                                  console.error("Error al guardar garantías:", error);
+                                  toast({
+                                    title: "Error al guardar",
+                                    description: "No se pudieron guardar tus garantías personales.",
+                                    variant: "destructive",
+                                  });
+                                } finally {
+                                  setIsSavingPolicies(false);
+                                }
+                              }}
+                              title="Guardar este texto como tu plantilla por defecto para tus futuras cotizaciones"
+                            >
+                              {isSavingPolicies ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : null}
+                              Guardar como mi plantilla
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              className="h-6 text-[11px] px-2 text-muted-foreground hover:text-foreground"
+                              onClick={() => {
+                                form.setValue("policies", defaultPolicies, { shouldDirty: true });
+                                toast({
+                                  title: "Plantilla Oficial Cargada",
+                                  description: "Se cargó el texto estándar oficial de garantías Lebaref.",
+                                });
+                              }}
+                              title="Cargar texto estándar oficial de Lebaref"
+                            >
+                              Restablecer oficial
+                            </Button>
+                          </div>
+                        </div>
                         <FormControl><Textarea placeholder="Describa las garantías del servicio o producto..." className="min-h-[100px]" {...field} /></FormControl>
                         <FormMessage />
                     </FormItem>
