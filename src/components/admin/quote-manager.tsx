@@ -225,16 +225,16 @@ const createOrUpdateTicketFromQuote = async (quote: Quote, currentUserId: string
         const ticketRef = doc(db, "tickets", quote.linkedTicketId);
         return await runTransaction(db, async (transaction) => {
             // ALL READS FIRST
-            // currentUserId = quien acepta (para el código de OT)
-            const currentUserDocRef = doc(db, "users", currentUserId);
-            const currentUserDoc = await transaction.get(currentUserDocRef);
+            const targetUserId = quote.userId || currentUserId;
+            const userDocRef = doc(db, "users", targetUserId);
+            const userDoc = await transaction.get(userDocRef);
             const ticketDoc = await transaction.get(ticketRef);
 
             let userCode = "00";
             let newOtNumber = 1;
 
-            if (currentUserDoc.exists()) {
-                const uData = currentUserDoc.data();
+            if (userDoc.exists()) {
+                const uData = userDoc.data();
                 userCode = uData.userCode || "00";
                 newOtNumber = (uData.workOrderCounter || 0) + 1;
             } else {
@@ -246,8 +246,8 @@ const createOrUpdateTicketFromQuote = async (quote: Quote, currentUserId: string
             const generatedOtNumber = `OT${userCode}-${String(newOtNumber).padStart(4, '0')}`;
 
             // ALL WRITES AFTER
-            if (currentUserDoc.exists()) {
-                transaction.update(currentUserDocRef, { workOrderCounter: newOtNumber });
+            if (userDoc.exists()) {
+                transaction.update(userDocRef, { workOrderCounter: newOtNumber });
             } else {
                 const otCounterRef = doc(db, "counters", "work_orders");
                 transaction.set(otCounterRef, { lastNumber: newOtNumber }, { merge: true });
@@ -271,7 +271,7 @@ const createOrUpdateTicketFromQuote = async (quote: Quote, currentUserId: string
                 items: otItems,
                 status: 'Pendiente',
                 technician: '',
-                userId: currentUserId,
+                userId: targetUserId,
                 createdAt: serverTimestamp(),
             });
             // Si el ticket existe lo actualiza, si no lo crea (puede haber sido borrado)
@@ -289,9 +289,9 @@ const createOrUpdateTicketFromQuote = async (quote: Quote, currentUserId: string
             const counterRef = doc(db, "counters", "tickets");
             const counterDoc = await transaction.get(counterRef);
 
-            // currentUserId = quien acepta (para el código de OT)
-            const currentUserDocRef = doc(db, "users", currentUserId);
-            const currentUserDoc = await transaction.get(currentUserDocRef);
+            const targetUserId = quote.userId || currentUserId;
+            const userDocRef = doc(db, "users", targetUserId);
+            const userDoc = await transaction.get(userDocRef);
 
             // CALCULATE NUMBERS
             let newTicketNumber = 1;
@@ -301,8 +301,8 @@ const createOrUpdateTicketFromQuote = async (quote: Quote, currentUserId: string
 
             let userCode = "00";
             let newOtNumber = 1;
-            if (currentUserDoc.exists()) {
-                const uData = currentUserDoc.data();
+            if (userDoc.exists()) {
+                const uData = userDoc.data();
                 userCode = uData.userCode || "00";
                 newOtNumber = (uData.workOrderCounter || 0) + 1;
             } else {
@@ -315,8 +315,8 @@ const createOrUpdateTicketFromQuote = async (quote: Quote, currentUserId: string
 
             // ALL WRITES AFTER
             transaction.set(counterRef, { lastNumber: newTicketNumber }, { merge: true });
-            if (currentUserDoc.exists()) {
-                transaction.update(currentUserDocRef, { workOrderCounter: newOtNumber });
+            if (userDoc.exists()) {
+                transaction.update(userDocRef, { workOrderCounter: newOtNumber });
             } else {
                 const otCounterRef = doc(db, "counters", "work_orders");
                 transaction.set(otCounterRef, { lastNumber: newOtNumber }, { merge: true });
@@ -345,7 +345,7 @@ const createOrUpdateTicketFromQuote = async (quote: Quote, currentUserId: string
                 items: otItems,
                 status: 'Pendiente',
                 technician: '',
-                userId: currentUserId,
+                userId: targetUserId,
                 createdAt: serverTimestamp(),
             });
             

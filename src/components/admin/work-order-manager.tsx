@@ -432,16 +432,40 @@ export function WorkOrderManager() {
     }
   }, [selectedWO, user, toast]);
 
-  // Delete
-  const handleDelete = useCallback(async (id: string) => {
-    const ref = doc(db, "ordenes_de_trabajo", id);
+  // Delete with safe counter rollback (only if it's the latest OT for that user)
+  const handleDelete = useCallback(async (wo: WorkOrder) => {
     try {
-      await deleteDoc(ref);
+      await runTransaction(db, async (tx) => {
+        const otRef = doc(db, "ordenes_de_trabajo", wo.id);
+        const otDoc = await tx.get(otRef);
+        if (!otDoc.exists()) return;
+
+        const otData = otDoc.data();
+        const targetUserId = otData.userId || user?.uid;
+
+        // Extraer el número consecutivo de la OT (ej: OT01-0005 -> 5)
+        const match = (otData.otNumber || "").match(/OT\d+-(\d+)/);
+        const currentOtNum = match ? parseInt(match[1], 10) : null;
+
+        if (targetUserId && currentOtNum !== null) {
+          const userDocRef = doc(db, "users", targetUserId);
+          const userDoc = await tx.get(userDocRef);
+          if (userDoc.exists()) {
+            const currentCounter = userDoc.data().workOrderCounter || 0;
+            // Solo si la OT que se elimina es exactamente la última generada por ese usuario
+            if (currentCounter === currentOtNum && currentCounter > 0) {
+              tx.update(userDocRef, { workOrderCounter: currentCounter - 1 });
+            }
+          }
+        }
+
+        tx.delete(otRef);
+      });
       toast({ title: "OT Eliminada", description: "La orden de trabajo ha sido eliminada." });
     } catch {
-      errorEmitter.emit("permission-error", new FirestorePermissionError({ path: ref.path, operation: "delete" }));
+      errorEmitter.emit("permission-error", new FirestorePermissionError({ path: `ordenes_de_trabajo/${wo.id}`, operation: "delete" }));
     }
-  }, [toast]);
+  }, [toast, user]);
 
   // Status change — validates transition before applying
   const handleStatusChange = useCallback(async (wo: WorkOrder, newStatus: WorkOrder["status"]) => {
@@ -596,7 +620,7 @@ export function WorkOrderManager() {
                   </AlertDialogHeader>
                   <AlertDialogFooter>
                     <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                    <AlertDialogAction onClick={() => handleDelete(wo.id)} className="bg-destructive hover:bg-destructive/90">
+                    <AlertDialogAction onClick={() => handleDelete(wo)} className="bg-destructive hover:bg-destructive/90">
                       Eliminar
                     </AlertDialogAction>
                   </AlertDialogFooter>
