@@ -641,6 +641,9 @@ export default function CuentasPorCobrarPage() {
   // Filter quotes based on search, client, service, responsable, OT, date, and status
   const filteredQuotes = useMemo(() => {
     return quotes.filter(q => {
+      // BASE FILTER: Solo cotizaciones aceptadas o pagadas aparecen en CxC
+      if (q.status !== "Aceptada" && q.status !== "Pagada") return false;
+
       // If user is a salesperson without global accounts_receivable permission, only show their own quotes
       if (!isGlobalCobranza && user && q.userId !== user.uid) {
         return false;

@@ -228,6 +228,7 @@ const createOrUpdateTicketFromQuote = async (quote: Quote, currentUserId: string
             const targetUserId = quote.userId || currentUserId;
             const userDocRef = doc(db, "users", targetUserId);
             const userDoc = await transaction.get(userDocRef);
+            const ticketDoc = await transaction.get(ticketRef);
 
             let userCode = "00";
             let newOtNumber = 1;
@@ -273,7 +274,12 @@ const createOrUpdateTicketFromQuote = async (quote: Quote, currentUserId: string
                 userId: targetUserId,
                 createdAt: serverTimestamp(),
             });
-            transaction.update(ticketRef, ticketData);
+            // Si el ticket existe lo actualiza, si no lo crea (puede haber sido borrado)
+            if (ticketDoc.exists()) {
+                transaction.update(ticketRef, ticketData);
+            } else {
+                transaction.set(ticketRef, { ...ticketData, ticketNumber: null });
+            }
             transaction.update(quoteRef, { status: "Aceptada", acceptedDate: new Date().toISOString().split('T')[0] });
             return quote.linkedTicketId;
         });

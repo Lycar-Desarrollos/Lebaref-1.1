@@ -7,14 +7,9 @@ service cloud.firestore {
     function getUserData(uid) {
       return get(/databases/$(database)/documents/users/$(uid)).data;
     }
-
     function isAdmin() {
-      return request.auth != null && (
-        request.auth.token.email == 'ydalimir12arevalo16@lebaref.com' ||
-        (getUserData(request.auth.uid) != null && getUserData(request.auth.uid).role == 'admin')
-      );
+      return request.auth != null && getUserData(request.auth.uid).role == 'admin';
     }
-
     function hasPermission(module) {
       let data = getUserData(request.auth.uid);
       return request.auth != null 
@@ -29,10 +24,9 @@ service cloud.firestore {
     }
     
     match /users/{userId} {
-      allow list, delete: if isAdmin();
+      allow list, write: if isAdmin();
       allow get: if request.auth != null && (request.auth.uid == userId || isAdmin());
-      allow create: if request.auth != null && (request.auth.uid == userId || isAdmin());
-      // User can update their own profile, but cannot change their role or userCode unless admin.
+      // User can update their own profile, but cannot change their role or userCode.
       allow update: if isAdmin() || (request.auth.uid == userId && 
                    request.resource.data.role == resource.data.role &&
                    request.resource.data.userCode == resource.data.userCode);
@@ -41,35 +35,28 @@ service cloud.firestore {
     match /projects/{projectId} {
       allow create: if (hasPermission('projects') || isAdmin()) && request.resource.data.userId == request.auth.uid;
       allow list: if hasPermission('projects') || hasPermission('calendar') || isAdmin();
-      allow get: if isAdmin() || hasPermission('projects') || hasPermission('calendar') || resource.data.userId == request.auth.uid;
-      allow update: if isAdmin() || hasPermission('projects') || resource.data.userId == request.auth.uid;
-      allow delete: if isAdmin() || resource.data.userId == request.auth.uid;
+      allow get: if isAdmin() || resource.data.userId == request.auth.uid;
+      allow update, delete: if isAdmin() || resource.data.userId == request.auth.uid;
     }
-
     match /tickets/{ticketId} {
       allow create: if request.auth != null && request.resource.data.userId == request.auth.uid;
       allow list: if request.auth != null;
-      allow get: if request.auth != null;
-      allow update: if request.auth != null;
-      allow delete: if isAdmin() || resource.data.userId == request.auth.uid;
+      allow get: if isAdmin() || resource.data.userId == request.auth.uid;
+      allow update, delete: if isAdmin() || resource.data.userId == request.auth.uid;
     }
-
     match /quotes/{quoteId} {
       allow create: if (hasPermission('quotes') || isAdmin()) && request.resource.data.userId == request.auth.uid;
       allow list: if hasPermission('quotes') || hasPermission('projects') || hasPermission('reports') || hasPermission('accounts_receivable') || isAdmin();
-      allow get: if isAdmin() || hasPermission('quotes') || hasPermission('projects') || hasPermission('reports') || hasPermission('accounts_receivable') || resource.data.userId == request.auth.uid;
-      allow update: if isAdmin() || hasPermission('quotes') || hasPermission('accounts_receivable') || resource.data.userId == request.auth.uid;
-      allow delete: if isAdmin() || resource.data.userId == request.auth.uid;
+      allow get: if isAdmin() || hasPermission('accounts_receivable') || resource.data.userId == request.auth.uid;
+      allow update, delete: if isAdmin() || hasPermission('quotes') || hasPermission('accounts_receivable') || resource.data.userId == request.auth.uid;
     }
     
     match /purchase_orders/{orderId} {
       allow create: if (hasPermission('purchase_orders') || isAdmin()) && request.resource.data.userId == request.auth.uid;
       allow list: if hasPermission('purchase_orders') || hasPermission('projects') || hasPermission('reports') || isAdmin();
-      allow get: if isAdmin() || hasPermission('purchase_orders') || hasPermission('projects') || hasPermission('reports') || resource.data.userId == request.auth.uid;
-      allow update: if isAdmin() || hasPermission('purchase_orders') || resource.data.userId == request.auth.uid;
-      allow delete: if isAdmin() || resource.data.userId == request.auth.uid;
+      allow get: if isAdmin() || resource.data.userId == request.auth.uid;
+      allow update, delete: if isAdmin() || resource.data.userId == request.auth.uid;
     }
-
     // Publicly readable collections
     match /services/{docId} {
       allow read: if true;
@@ -79,7 +66,6 @@ service cloud.firestore {
     match /services {
       allow list: if true;
     }
-
     match /spare_parts/{docId} {
       allow read: if true;
       allow create, update: if isAdmin() || hasPermission('spare_parts');
@@ -88,7 +74,6 @@ service cloud.firestore {
     match /spare_parts {
       allow list: if true;
     }
-
     // Restricted collections
     match /clients/{docId} {
       allow read: if canRead('clients') || hasPermission('quotes') || hasPermission('accounts_receivable');
@@ -96,7 +81,7 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
     match /clients {
-      allow list: if canRead('clients') || hasPermission('quotes') || hasPermission('accounts_receivable');
+      allow list: if canRead('clients') || hasPermission('quotes') || hasPermission('accounts_receivable') || hasPermission('reports');
     }
     
     match /suppliers/{docId} {
@@ -107,7 +92,6 @@ service cloud.firestore {
     match /suppliers {
       allow list: if true;
     }
-
     match /counters/{counterId} {
       allow read, write: if request.auth != null && (
         (counterId == 'users' && isAdmin()) ||
@@ -115,13 +99,10 @@ service cloud.firestore {
         (counterId == 'work_orders' && (isAdmin() || hasPermission('work_orders') || hasPermission('quotes')))
       );
     }
-
     match /ordenes_de_trabajo/{otId} {
-      allow create: if (isAdmin() || hasPermission('work_orders') || hasPermission('work_orders_all') || hasPermission('quotes')) && request.resource.data.userId == request.auth.uid;
-      allow list: if isAdmin() || hasPermission('work_orders_all') || resource.data.userId == request.auth.uid || resource.data.technicianId == request.auth.uid;
-      allow get: if isAdmin() || hasPermission('work_orders_all') || resource.data.userId == request.auth.uid || resource.data.technicianId == request.auth.uid;
-      allow update: if isAdmin() || hasPermission('work_orders_all') || resource.data.userId == request.auth.uid || resource.data.technicianId == request.auth.uid;
-      allow delete: if isAdmin() || resource.data.userId == request.auth.uid;
+      allow create: if (isAdmin() || hasPermission('work_orders') || hasPermission('quotes'));
+      allow list, get: if isAdmin() || hasPermission('work_orders') || hasPermission('quotes') || hasPermission('accounts_receivable') || resource.data.userId == request.auth.uid;
+      allow update, delete: if isAdmin() || hasPermission('work_orders') || hasPermission('quotes') || resource.data.userId == request.auth.uid;
     }
   }
 }
