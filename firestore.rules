@@ -24,8 +24,8 @@ service cloud.firestore {
     }
     
     match /users/{userId} {
-      allow list, write: if isAdmin();
-      allow get: if request.auth != null && (request.auth.uid == userId || isAdmin());
+      allow list, get: if request.auth != null;
+      allow write, delete: if isAdmin();
       // User can update their own profile, but cannot change their role or userCode.
       allow update: if isAdmin() || (request.auth.uid == userId && 
                    request.resource.data.role == resource.data.role &&

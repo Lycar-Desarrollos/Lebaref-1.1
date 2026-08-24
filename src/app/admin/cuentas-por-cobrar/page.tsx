@@ -194,6 +194,7 @@ export default function CuentasPorCobrarPage() {
   const [quotes, setQuotes] = useState<Quote[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
   const [workOrders, setWorkOrders] = useState<WorkOrder[]>([]);
+  const [usersList, setUsersList] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   // User Custom Preferences State
@@ -369,8 +370,32 @@ export default function CuentasPorCobrarPage() {
       )
     );
 
+    // Subscribe to users for Puesto and Departamento lookups
+    unsubs.push(
+      onSnapshot(
+        collection(db, "users"),
+        (snap) => {
+          const data = snap.docs.map(doc => ({ uid: doc.id, ...doc.data() }));
+          setUsersList(data);
+        },
+        () => {
+          // Non-blocking fallback
+        }
+      )
+    );
+
     return () => unsubs.forEach(unsub => unsub());
   }, [userProfile]);
+
+  // Map of users -> { jobTitle, department, displayName }
+  const usersMap = useMemo(() => {
+    const map = new Map<string, { displayName?: string; jobTitle?: string; department?: string }>();
+    usersList.forEach(u => {
+      if (u.uid) map.set(u.uid, u);
+      if (u.displayName) map.set(u.displayName.trim().toLowerCase(), u);
+    });
+    return map;
+  }, [usersList]);
 
   // Map of client name -> client details
   const clientMap = useMemo(() => {
@@ -1970,28 +1995,31 @@ export default function CuentasPorCobrarPage() {
 
               {/* Table */}
               <div className="rounded-xl border overflow-x-auto shadow-sm">
-                <Table className="min-w-[1450px]">
+                <Table className="min-w-[1650px]">
                   <TableHeader className="bg-slate-50">
                     <TableRow>
-                      <TableHead className="w-[120px] whitespace-nowrap">No. Cotización</TableHead>
-                      <TableHead className="w-[130px] whitespace-nowrap">No. OT</TableHead>
-                      <TableHead className="w-[130px] whitespace-nowrap">No. Factura</TableHead>
-                      <TableHead className="min-w-[200px]">Cliente</TableHead>
-                      <TableHead className="w-[120px] whitespace-nowrap">Servicio</TableHead>
+                      <TableHead className="w-[110px] whitespace-nowrap">No. Cotización</TableHead>
+                      <TableHead className="w-[120px] whitespace-nowrap">No. OT</TableHead>
+                      <TableHead className="w-[120px] whitespace-nowrap">No. Factura</TableHead>
+                      <TableHead className="min-w-[180px]">Cliente</TableHead>
+                      <TableHead className="min-w-[140px]">Responsable</TableHead>
+                      <TableHead className="w-[120px] whitespace-nowrap">Puesto / Rol</TableHead>
+                      <TableHead className="w-[120px] whitespace-nowrap">Departamento</TableHead>
+                      <TableHead className="w-[110px] whitespace-nowrap">Servicio</TableHead>
                       <TableHead className="text-right w-[110px] whitespace-nowrap">Total</TableHead>
                       <TableHead className="text-right w-[110px] whitespace-nowrap">Abonado</TableHead>
                       <TableHead className="text-right w-[120px] whitespace-nowrap">Saldo Pend.</TableHead>
-                      <TableHead className="w-[105px] whitespace-nowrap">Emisión</TableHead>
-                      <TableHead className="w-[110px] whitespace-nowrap">Vencimiento</TableHead>
-                      <TableHead className="w-[85px] text-center whitespace-nowrap">Mora</TableHead>
-                      <TableHead className="w-[180px] whitespace-nowrap">Estado de Cobro</TableHead>
-                      <TableHead className="w-[130px] text-right whitespace-nowrap">Acciones</TableHead>
+                      <TableHead className="w-[100px] whitespace-nowrap">Emisión</TableHead>
+                      <TableHead className="w-[105px] whitespace-nowrap">Vencimiento</TableHead>
+                      <TableHead className="w-[80px] text-center whitespace-nowrap">Mora</TableHead>
+                      <TableHead className="w-[160px] whitespace-nowrap">Estado de Cobro</TableHead>
+                      <TableHead className="w-[120px] text-right whitespace-nowrap">Acciones</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {paginatedQuotes.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={13} className="h-28 text-center text-muted-foreground">
+                        <TableCell colSpan={16} className="h-28 text-center text-muted-foreground">
                           <div className="flex flex-col items-center justify-center gap-2 py-4">
                             <ListFilter className="h-8 w-8 text-muted-foreground/40" />
                             <p className="font-medium text-slate-600 dark:text-slate-400">No se encontraron cuentas por cobrar con los filtros seleccionados.</p>
@@ -2067,10 +2095,44 @@ export default function CuentasPorCobrarPage() {
                               )}
                             </TableCell>
 
-                            {/* Client Name & Responsable */}
-                            <TableCell className="max-w-[190px] truncate" title={quote.clientName}>
+                            {/* Client Name */}
+                            <TableCell className="max-w-[180px] truncate" title={quote.clientName}>
                               <div className="font-semibold text-sm truncate">{quote.clientName || "—"}</div>
-                              {quote.responsable && <div className="text-[11px] text-muted-foreground truncate">Resp: {quote.responsable}</div>}
+                            </TableCell>
+
+                            {/* Responsable */}
+                            <TableCell className="max-w-[140px] truncate">
+                              <span className="font-medium text-xs text-foreground">
+                                {quote.responsable || usersMap.get(quote.userId || "")?.displayName || "—"}
+                              </span>
+                            </TableCell>
+
+                            {/* Puesto / Rol */}
+                            <TableCell className="whitespace-nowrap">
+                              {(() => {
+                                const uInfo = (quote.userId ? usersMap.get(quote.userId) : null) || (quote.responsable ? usersMap.get(quote.responsable.trim().toLowerCase()) : null);
+                                return uInfo?.jobTitle ? (
+                                  <Badge variant="secondary" className="font-normal text-xs bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300">
+                                    {uInfo.jobTitle}
+                                  </Badge>
+                                ) : (
+                                  <span className="text-xs text-muted-foreground">—</span>
+                                );
+                              })()}
+                            </TableCell>
+
+                            {/* Departamento */}
+                            <TableCell className="whitespace-nowrap">
+                              {(() => {
+                                const uInfo = (quote.userId ? usersMap.get(quote.userId) : null) || (quote.responsable ? usersMap.get(quote.responsable.trim().toLowerCase()) : null);
+                                return uInfo?.department ? (
+                                  <Badge variant="outline" className="font-normal text-xs border-slate-300 text-slate-700 dark:border-slate-700 dark:text-slate-300">
+                                    {uInfo.department}
+                                  </Badge>
+                                ) : (
+                                  <span className="text-xs text-muted-foreground">—</span>
+                                );
+                              })()}
                             </TableCell>
 
                             {/* Service Type */}

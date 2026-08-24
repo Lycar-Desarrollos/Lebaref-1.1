@@ -76,6 +76,8 @@ const userSchema = z.object({
   email: z.string().email("Correo electrónico inválido."),
   password: z.string().min(6, "La contraseña debe tener al menos 6 caracteres.").optional().or(z.literal('')),
   role: z.enum(["admin", "employee"], { required_error: "Debe seleccionar un rol." }),
+  jobTitle: z.string().optional(),
+  department: z.string().optional(),
   permissions: z.array(z.string()).optional(),
 }).refine((data) => {
     if (!data.id && (!data.password || data.password.length < 6)) {
@@ -93,6 +95,8 @@ type UserProfile = {
     displayName: string;
     email: string;
     role: "admin" | "employee";
+    jobTitle?: string;
+    department?: string;
     permissions: { [key: string]: boolean };
     createdAt: any;
     userCode: string;
@@ -213,6 +217,8 @@ export default function UsersPage() {
                         displayName: data.displayName,
                         email: data.email,
                         role: data.role,
+                        jobTitle: data.jobTitle || "",
+                        department: data.department || "",
                         permissions: finalPermissions,
                         createdAt: serverTimestamp(),
                         userCode: userCode,
@@ -241,8 +247,30 @@ export default function UsersPage() {
     
     const columns: ColumnDef<UserProfile>[] = useMemo(() => [
         { accessorKey: "displayName", header: "Nombre" },
+        { 
+          accessorKey: "jobTitle", 
+          header: "Puesto / Rol",
+          cell: ({ row }) => (
+            <span className="font-medium text-foreground">{row.original.jobTitle || "—"}</span>
+          )
+        },
+        { 
+          accessorKey: "department", 
+          header: "Departamento",
+          cell: ({ row }) => (
+            <span className="text-muted-foreground">{row.original.department || "—"}</span>
+          )
+        },
         { accessorKey: "email", header: "Correo" },
-        { accessorKey: "role", header: "Rol" },
+        { 
+          accessorKey: "role", 
+          header: "Tipo Acceso",
+          cell: ({ row }) => (
+            <span className={row.original.role === "admin" ? "text-primary font-semibold" : "text-muted-foreground"}>
+              {row.original.role === "admin" ? "Administrador" : "Empleado"}
+            </span>
+          )
+        },
         { accessorKey: "userCode", header: "Código" },
         { id: "actions",
           cell: ({ row }) => (
@@ -350,11 +378,13 @@ function UserFormDialog({ isOpen, onOpenChange, onSave, user }: UserFormDialogPr
                 displayName: user.displayName,
                 email: user.email,
                 role: user.role,
+                jobTitle: user.jobTitle || "",
+                department: user.department || "",
                 permissions: userPermissionsArray,
                 password: '',
             });
           } else {
-            form.reset({ displayName: "", email: "", password: "", role: "employee", permissions: [] });
+            form.reset({ displayName: "", email: "", password: "", role: "employee", jobTitle: "", department: "", permissions: [] });
           }
         }
       }, [user, isOpen, form]);
@@ -387,6 +417,26 @@ function UserFormDialog({ isOpen, onOpenChange, onSave, user }: UserFormDialogPr
                                     <FormMessage />
                                 </FormItem>
                             )} />
+                            
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                <FormField control={form.control} name="jobTitle" render={({ field }) => (
+                                    <FormItem>
+                                        <FormLabel>Puesto / Rol Operativo</FormLabel>
+                                        <FormControl><Input placeholder="Ej: Encargado, Auxiliar, Técnico, Vendedor" {...field} value={field.value || ""} /></FormControl>
+                                        <FormDescription className="text-xs">Cargo o rol operativo que desempeña.</FormDescription>
+                                        <FormMessage />
+                                    </FormItem>
+                                )} />
+                                <FormField control={form.control} name="department" render={({ field }) => (
+                                    <FormItem>
+                                        <FormLabel>Departamento / Área</FormLabel>
+                                        <FormControl><Input placeholder="Ej: HVAC, Electricidad, Refrigeración" {...field} value={field.value || ""} /></FormControl>
+                                        <FormDescription className="text-xs">Área técnica o departamento asignado.</FormDescription>
+                                        <FormMessage />
+                                    </FormItem>
+                                )} />
+                            </div>
+
                             <FormField control={form.control} name="email" render={({ field }) => (
                                 <FormItem>
                                     <FormLabel>Correo Electrónico</FormLabel>

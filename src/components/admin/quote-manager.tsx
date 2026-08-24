@@ -731,6 +731,28 @@ export function QuoteManager() {
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [selectedQuote, setSelectedQuote] = useState<Quote | null>(null);
   const [date, setDate] = useState<DateRange | undefined>(undefined);
+  const [usersList, setUsersList] = useState<any[]>([]);
+
+  // Load all users to get Job Title (Puesto) and Department
+  useEffect(() => {
+    if (!user) return;
+    const unsub = onSnapshot(collection(db, "users"), (snapshot) => {
+      const uList = snapshot.docs.map(d => ({ uid: d.id, ...d.data() }));
+      setUsersList(uList);
+    }, () => {
+      // Non-blocking fallback
+    });
+    return () => unsub();
+  }, [user]);
+
+  const usersMap = useMemo(() => {
+    const map = new Map<string, { displayName?: string; jobTitle?: string; department?: string }>();
+    usersList.forEach(u => {
+      if (u.uid) map.set(u.uid, u);
+      if (u.displayName) map.set(u.displayName.trim().toLowerCase(), u);
+    });
+    return map;
+  }, [usersList]);
 
   useEffect(() => {
     if (highlightId && quotes.length > 0) {
@@ -971,6 +993,67 @@ export function QuoteManager() {
         cell: ({ row }) => <span className="font-medium text-foreground">{row.original.clientName || "—"}</span>,
       },
       { 
+        accessorKey: "responsable", 
+        header: ({ column }) => (
+          <Button variant="ghost" size="sm" className="-ml-3 h-8 font-semibold" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
+            Responsable <ArrowUpDown className="ml-2 h-3.5 w-3.5" />
+          </Button>
+        ),
+        cell: ({ row }) => {
+          const uInfo = (row.original.userId ? usersMap.get(row.original.userId) : null) || (row.original.responsable ? usersMap.get(row.original.responsable.trim().toLowerCase()) : null);
+          const name = row.original.responsable || uInfo?.displayName || "—";
+          return <span className="font-medium text-foreground text-xs">{name}</span>;
+        }
+      },
+      { 
+        id: "puesto",
+        header: ({ column }) => (
+          <Button variant="ghost" size="sm" className="-ml-3 h-8 font-semibold" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
+            Puesto / Rol <ArrowUpDown className="ml-2 h-3.5 w-3.5" />
+          </Button>
+        ),
+        sortingFn: (rowA, rowB) => {
+          const uA = (rowA.original.userId ? usersMap.get(rowA.original.userId) : null) || (rowA.original.responsable ? usersMap.get(rowA.original.responsable.trim().toLowerCase()) : null);
+          const uB = (rowB.original.userId ? usersMap.get(rowB.original.userId) : null) || (rowB.original.responsable ? usersMap.get(rowB.original.responsable.trim().toLowerCase()) : null);
+          return (uA?.jobTitle || "").localeCompare(uB?.jobTitle || "");
+        },
+        cell: ({ row }) => {
+          const uInfo = (row.original.userId ? usersMap.get(row.original.userId) : null) || (row.original.responsable ? usersMap.get(row.original.responsable.trim().toLowerCase()) : null);
+          const jobTitle = uInfo?.jobTitle;
+          return jobTitle ? (
+            <Badge variant="secondary" className="font-normal text-xs bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300">
+              {jobTitle}
+            </Badge>
+          ) : (
+            <span className="text-muted-foreground text-xs">—</span>
+          );
+        }
+      },
+      { 
+        id: "departamento",
+        header: ({ column }) => (
+          <Button variant="ghost" size="sm" className="-ml-3 h-8 font-semibold" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
+            Departamento <ArrowUpDown className="ml-2 h-3.5 w-3.5" />
+          </Button>
+        ),
+        sortingFn: (rowA, rowB) => {
+          const uA = (rowA.original.userId ? usersMap.get(rowA.original.userId) : null) || (rowA.original.responsable ? usersMap.get(rowA.original.responsable.trim().toLowerCase()) : null);
+          const uB = (rowB.original.userId ? usersMap.get(rowB.original.userId) : null) || (rowB.original.responsable ? usersMap.get(rowB.original.responsable.trim().toLowerCase()) : null);
+          return (uA?.department || "").localeCompare(uB?.department || "");
+        },
+        cell: ({ row }) => {
+          const uInfo = (row.original.userId ? usersMap.get(row.original.userId) : null) || (row.original.responsable ? usersMap.get(row.original.responsable.trim().toLowerCase()) : null);
+          const department = uInfo?.department;
+          return department ? (
+            <Badge variant="outline" className="font-normal text-xs border-slate-300 text-slate-700 dark:border-slate-700 dark:text-slate-300">
+              {department}
+            </Badge>
+          ) : (
+            <span className="text-muted-foreground text-xs">—</span>
+          );
+        }
+      },
+      { 
         accessorKey: "date", 
         header: ({ column }) => (
           <Button variant="ghost" size="sm" className="-ml-3 h-8 font-semibold" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
@@ -1093,7 +1176,7 @@ export function QuoteManager() {
         },
       },
     ],
-    [handleDelete, handleStatusChange]
+    [handleDelete, handleStatusChange, usersMap]
   );
 
   const table = useReactTable({
