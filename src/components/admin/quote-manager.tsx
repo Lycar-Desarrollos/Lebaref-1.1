@@ -906,6 +906,15 @@ export function QuoteManager() {
         toast({ title: "No autenticado", description: "Debes iniciar sesión para realizar esta acción.", variant: "destructive" });
         return;
     }
+    // Bloquear re-aceptación: si ya está Aceptada o Pagada, no se puede volver a aceptar
+    if (newStatus === "Aceptada" && (quote.status === "Aceptada" || quote.status === "Pagada")) {
+        toast({
+            title: "Acción no permitida",
+            description: `Esta cotización ya fue aceptada anteriormente${quote.linkedTicketId ? ` y tiene el ticket vinculado.` : "."} No se puede volver a aceptar.`,
+            variant: "destructive",
+        });
+        return;
+    }
     const quoteRef = doc(db, "quotes", quote.id);
     const payload = { status: newStatus };
     try {
