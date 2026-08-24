@@ -175,9 +175,8 @@ export default function ConfiguracionPage() {
     loadData();
   }, [user, authIsLoading]);
 
-  // Handle Theme Selection
+  // Handle Theme Selection (Staged in form, only applied globally when saving)
   const handleSelectTheme = (newTheme: Theme) => {
-    setTheme(newTheme);
     setPrefs((prev) => ({ ...prev, theme: newTheme }));
   };
 
@@ -189,10 +188,14 @@ export default function ConfiguracionPage() {
     try {
       setIsSaving(true);
       const userRef = doc(db, "users", user.uid);
+      const chosenTheme = prefs.theme || theme;
+
+      // Apply theme globally upon explicit save
+      setTheme(chosenTheme);
 
       await updateDoc(userRef, {
         preferences: prefs,
-        theme: prefs.theme || theme,
+        theme: chosenTheme,
         updatedAt: new Date(),
       });
 
@@ -708,7 +711,7 @@ export default function ConfiguracionPage() {
                 <div
                   onClick={() => handleSelectTheme("light")}
                   className={`cursor-pointer rounded-2xl border-2 p-5 transition-all relative flex flex-col justify-between ${
-                    theme === "light"
+                    (prefs.theme || theme) === "light"
                       ? "border-primary bg-primary/5 ring-4 ring-primary/10 shadow-sm"
                       : "border-border bg-card hover:border-primary/40 hover:bg-muted/30"
                   }`}
@@ -718,9 +721,9 @@ export default function ConfiguracionPage() {
                       <div className="p-2.5 bg-amber-100 text-amber-600 dark:bg-amber-950 dark:text-amber-400 rounded-xl">
                         <Sun className="h-6 w-6" />
                       </div>
-                      {theme === "light" && (
+                      {(prefs.theme || theme) === "light" && (
                         <span className="flex items-center gap-1 bg-primary text-primary-foreground text-xs font-bold px-2 py-0.5 rounded-full">
-                          <Check className="h-3 w-3" /> Activo
+                          <Check className="h-3 w-3" /> Seleccionado
                         </span>
                       )}
                     </div>
@@ -742,7 +745,7 @@ export default function ConfiguracionPage() {
                 <div
                   onClick={() => handleSelectTheme("dark")}
                   className={`cursor-pointer rounded-2xl border-2 p-5 transition-all relative flex flex-col justify-between ${
-                    theme === "dark"
+                    (prefs.theme || theme) === "dark"
                       ? "border-primary bg-primary/5 ring-4 ring-primary/10 shadow-sm"
                       : "border-border bg-card hover:border-primary/40 hover:bg-muted/30"
                   }`}
@@ -752,9 +755,9 @@ export default function ConfiguracionPage() {
                       <div className="p-2.5 bg-indigo-100 text-indigo-600 dark:bg-indigo-950 dark:text-indigo-400 rounded-xl">
                         <Moon className="h-6 w-6" />
                       </div>
-                      {theme === "dark" && (
+                      {(prefs.theme || theme) === "dark" && (
                         <span className="flex items-center gap-1 bg-primary text-primary-foreground text-xs font-bold px-2 py-0.5 rounded-full">
-                          <Check className="h-3 w-3" /> Activo
+                          <Check className="h-3 w-3" /> Seleccionado
                         </span>
                       )}
                     </div>
@@ -776,7 +779,7 @@ export default function ConfiguracionPage() {
                 <div
                   onClick={() => handleSelectTheme("system")}
                   className={`cursor-pointer rounded-2xl border-2 p-5 transition-all relative flex flex-col justify-between ${
-                    theme === "system"
+                    (prefs.theme || theme) === "system"
                       ? "border-primary bg-primary/5 ring-4 ring-primary/10 shadow-sm"
                       : "border-border bg-card hover:border-primary/40 hover:bg-muted/30"
                   }`}
@@ -786,9 +789,9 @@ export default function ConfiguracionPage() {
                       <div className="p-2.5 bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-xl">
                         <Laptop className="h-6 w-6" />
                       </div>
-                      {theme === "system" && (
+                      {(prefs.theme || theme) === "system" && (
                         <span className="flex items-center gap-1 bg-primary text-primary-foreground text-xs font-bold px-2 py-0.5 rounded-full">
-                          <Check className="h-3 w-3" /> Activo
+                          <Check className="h-3 w-3" /> Seleccionado
                         </span>
                       )}
                     </div>
@@ -816,13 +819,13 @@ export default function ConfiguracionPage() {
               {/* Status bar */}
               <div className="flex items-center justify-between p-4 rounded-xl border bg-muted/30">
                 <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                  <span>Tema actualmente aplicado:</span>
+                  <span>Tema seleccionado:</span>
                   <Badge variant="outline" className="capitalize font-mono font-bold">
-                    {resolvedTheme === "dark" ? "🌙 Oscuro" : "☀️ Claro"}
+                    {(prefs.theme || theme) === "dark" ? "🌙 Oscuro" : (prefs.theme || theme) === "system" ? "💻 Sistema" : "☀️ Claro"}
                   </Badge>
                 </div>
                 <span className="text-xs text-muted-foreground">
-                  Los cambios se aplican de forma inmediata y persistente.
+                  Haz clic en <strong className="text-foreground">"Guardar Cambios"</strong> arriba para aplicar el tema a todo el sistema.
                 </span>
               </div>
             </CardContent>
