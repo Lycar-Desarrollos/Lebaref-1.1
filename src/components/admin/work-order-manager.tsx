@@ -52,6 +52,17 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Calendar } from "@/components/ui/calendar";
 import { format } from "date-fns";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
+import { AlertTriangle } from "lucide-react";
 import { es } from "date-fns/locale";
 import { cn } from "@/lib/utils";
 import { useRouter } from "next/navigation";
@@ -60,6 +71,8 @@ import { useRouter } from "next/navigation";
 export type WorkOrderItem = {
   description: string;
   quantity: number;
+  unit: string;
+  observations?: string;
   unidad?: string;
 };
 
@@ -84,9 +97,15 @@ export type WorkOrder = {
   technician?: string;
   userId: string;
   createdAt?: any;
+  // Auditoría de Cancelación
+  cancelledBy?: string;
+  cancelledById?: string;
+  cancelledAt?: string;
+  cancellationReason?: string;
 };
 
 type UserProfile = {
+  displayName?: string;
   role: "admin" | "employee";
   userCode: string;
   permissions?: { [key: string]: boolean };
@@ -105,8 +124,33 @@ const STATUS_CONFIG: Record<string, { label: string; className: string }> = {
   "Cancelado":  { label: "Cancelada",  className: "bg-red-100 text-red-700 border border-red-300" },
 };
 
-const StatusBadge = ({ status }: { status: string }) => {
+const StatusBadge = ({ status, wo }: { status: string; wo?: WorkOrder }) => {
   const cfg = STATUS_CONFIG[status] ?? { label: status, className: "bg-gray-100 text-gray-700 border border-gray-300" };
+
+  if ((status === "Cancelada" || status === "Cancelado") && wo?.cancellationReason) {
+    return (
+      <TooltipProvider>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-semibold cursor-help ${cfg.className}`}>
+              {cfg.label}
+            </span>
+          </TooltipTrigger>
+          <TooltipContent className="max-w-xs space-y-1 p-2.5 text-xs bg-slate-900 text-slate-100 border-slate-800 shadow-lg">
+            <p className="font-bold text-red-400">Orden Cancelada</p>
+            <p><span className="text-slate-400">Motivo:</span> {wo.cancellationReason}</p>
+            {wo.cancelledBy && <p><span className="text-slate-400">Por:</span> {wo.cancelledBy}</p>}
+            {wo.cancelledAt && (
+              <p className="text-[10px] text-slate-400">
+                {new Date(wo.cancelledAt).toLocaleString("es-MX")}
+              </p>
+            )}
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
+    );
+  }
+
   return (
     <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${cfg.className}`}>
       {cfg.label}
@@ -332,6 +376,12 @@ export function WorkOrderManager() {
   const [selectedWO, setSelectedWO] = useState<WorkOrder | null>(null);
   const [date, setDate] = useState<DateRange | undefined>(undefined);
 
+  // Cancellation Modal State
+  const [cancelModalOpen, setCancelModalOpen] = useState(false);
+  const [woToCancel, setWoToCancel] = useState<WorkOrder | null>(null);
+  const [cancelReason, setCancelReason] = useState("");
+  const [isSubmittingCancel, setIsSubmittingCancel] = useState(false);
+
   // Load user profile
   useEffect(() => {
     if (authIsLoading) return;
@@ -478,6 +528,15 @@ export function WorkOrderManager() {
       });
       return;
     }
+
+    // Si se selecciona Cancelar, solicitar motivo y usuario mediante modal de confirmación
+    if (newStatus === "Cancelada" || newStatus === "Cancelado") {
+      setWoToCancel(wo);
+      setCancelReason("");
+      setCancelModalOpen(true);
+      return;
+    }
+
     const ref = doc(db, "ordenes_de_trabajo", wo.id);
     try {
       await updateDoc(ref, { status: newStatus });
@@ -486,6 +545,44 @@ export function WorkOrderManager() {
       errorEmitter.emit("permission-error", new FirestorePermissionError({ path: ref.path, operation: "update" }));
     }
   }, [toast]);
+
+  // Confirm Cancellation with reason & user audit
+  const handleConfirmCancel = useCallback(async () => {
+    if (!woToCancel) return;
+    if (!cancelReason.trim()) {
+      toast({
+        title: "Motivo requerido",
+        description: "Por favor describe el motivo de la cancelación de la orden de trabajo.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setIsSubmittingCancel(true);
+    try {
+      const ref = doc(db, "ordenes_de_trabajo", woToCancel.id);
+      const cancelData = {
+        status: "Cancelada",
+        cancellationReason: cancelReason.trim(),
+        cancelledBy: userProfile?.displayName || user?.displayName || user?.email || "Usuario",
+        cancelledById: user?.uid || "",
+        cancelledAt: new Date().toISOString(),
+      };
+
+      await updateDoc(ref, cancelData);
+      toast({
+        title: "OT Cancelada",
+        description: `La orden ${woToCancel.otNumber} ha sido cancelada y se descartó automáticamente de Cuentas por Cobrar.`,
+      });
+      setCancelModalOpen(false);
+      setWoToCancel(null);
+      setCancelReason("");
+    } catch {
+      errorEmitter.emit("permission-error", new FirestorePermissionError({ path: `ordenes_de_trabajo/${woToCancel.id}`, operation: "update" }));
+    } finally {
+      setIsSubmittingCancel(false);
+    }
+  }, [woToCancel, cancelReason, userProfile, user, toast]);
 
   // Columns
   const columns: ColumnDef<WorkOrder>[] = useMemo(() => [
@@ -527,7 +624,7 @@ export function WorkOrderManager() {
     {
       accessorKey: "status",
       header: "Estado",
-      cell: ({ row }) => <StatusBadge status={row.original.status} />,
+      cell: ({ row }) => <StatusBadge status={row.original.status} wo={row.original} />,
     },
     {
       id: "quoteRef",
@@ -545,6 +642,7 @@ export function WorkOrderManager() {
       id: "actions",
       cell: ({ row }) => {
         const wo = row.original;
+        const validTransitions = getValidTransitions(wo.status);
         return (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
@@ -569,18 +667,18 @@ export function WorkOrderManager() {
 
               <DropdownMenuSub>
                 <DropdownMenuSubTrigger
-                  disabled={getValidTransitions(wo.status).length === 0}
-                  className={getValidTransitions(wo.status).length === 0 ? "opacity-50 cursor-not-allowed" : ""}
+                  disabled={validTransitions.length === 0}
+                  className={validTransitions.length === 0 ? "opacity-50 cursor-not-allowed" : ""}
                 >
                   Cambiar Estado
                 </DropdownMenuSubTrigger>
-                {getValidTransitions(wo.status).length > 0 && (
+                {validTransitions.length > 0 && (
                   <DropdownMenuSubContent>
                     <DropdownMenuLabel className="text-xs text-muted-foreground font-normal pb-1">
-                      Desde: <StatusBadge status={wo.status} />
+                      Desde: <StatusBadge status={wo.status} wo={wo} />
                     </DropdownMenuLabel>
                     <DropdownMenuSeparator />
-                    {getValidTransitions(wo.status).map((nextStatus) => {
+                    {validTransitions.map((nextStatus) => {
                       const cfg = STATUS_CONFIG[nextStatus];
                       const dotColors: Record<string, string> = {
                         "Pendiente": "bg-gray-400", "Asignada": "bg-sky-500",
@@ -604,34 +702,39 @@ export function WorkOrderManager() {
                 )}
               </DropdownMenuSub>
 
-              <DropdownMenuSeparator />
-              <AlertDialog>
-                <AlertDialogTrigger asChild>
-                  <DropdownMenuItem onSelect={(e) => e.preventDefault()} className="text-red-500">
-                    <Trash2 className="mr-2 h-4 w-4" /> Eliminar
-                  </DropdownMenuItem>
-                </AlertDialogTrigger>
-                <AlertDialogContent>
-                  <AlertDialogHeader>
-                    <AlertDialogTitle>¿Eliminar {wo.otNumber}?</AlertDialogTitle>
-                    <AlertDialogDescription>
-                      Esta acción no se puede deshacer. Se eliminará permanentemente la orden de trabajo.
-                    </AlertDialogDescription>
-                  </AlertDialogHeader>
-                  <AlertDialogFooter>
-                    <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                    <AlertDialogAction onClick={() => handleDelete(wo)} className="bg-destructive hover:bg-destructive/90">
-                      Eliminar
-                    </AlertDialogAction>
-                  </AlertDialogFooter>
-                </AlertDialogContent>
-              </AlertDialog>
+              {/* Eliminar (ESTRICTAMENTE SOLO PARA ROL ADMIN) */}
+              {userProfile?.role === "admin" && (
+                <>
+                  <DropdownMenuSeparator />
+                  <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                      <DropdownMenuItem onSelect={(e) => e.preventDefault()} className="text-red-500">
+                        <Trash2 className="mr-2 h-4 w-4" /> Eliminar
+                      </DropdownMenuItem>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>¿Eliminar {wo.otNumber}?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                          Esta acción no se puede deshacer. Se eliminará permanentemente la orden de trabajo de la base de datos.
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                        <AlertDialogAction onClick={() => handleDelete(wo)} className="bg-destructive hover:bg-destructive/90">
+                          Eliminar
+                        </AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
+                </>
+              )}
             </DropdownMenuContent>
           </DropdownMenu>
         );
       },
     },
-  ], [handleDelete, handleStatusChange, router]);
+  ], [handleDelete, handleStatusChange, userProfile, router]);
 
   const table = useReactTable({
     data: filteredWOs,
@@ -767,6 +870,59 @@ export function WorkOrderManager() {
         workOrder={selectedWO}
         userRole={userProfile?.role}
       />
+
+      {/* Modal de Cancelación de OT con motivo y auditoría */}
+      <Dialog open={cancelModalOpen} onOpenChange={setCancelModalOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <div className="flex items-center gap-2 text-red-600">
+              <AlertTriangle className="h-5 w-5" />
+              <DialogTitle className="text-lg">Cancelar {woToCancel?.otNumber}</DialogTitle>
+            </div>
+            <DialogDescription className="text-xs pt-1">
+              Al cancelar esta orden de trabajo, se registrará tu usuario, fecha y motivo de cancelación. Además, se <strong>descartará automáticamente de Cuentas por Cobrar</strong>.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <div className="space-y-1.5">
+              <Label htmlFor="cancel-reason" className="text-xs font-semibold text-foreground">
+                Motivo de la cancelación <span className="text-red-500">*</span>
+              </Label>
+              <Textarea
+                id="cancel-reason"
+                placeholder="Describe la razón por la cual se cancela esta orden de trabajo..."
+                value={cancelReason}
+                onChange={(e) => setCancelReason(e.target.value)}
+                className="min-h-[90px] text-sm"
+              />
+            </div>
+            <div className="text-[11px] text-muted-foreground bg-muted/40 p-2.5 rounded-lg border">
+              <p>👤 <strong>Usuario:</strong> {userProfile?.displayName || user?.displayName || user?.email || "Usuario"}</p>
+              <p>🕒 <strong>Fecha:</strong> {new Date().toLocaleString("es-MX")}</p>
+            </div>
+          </div>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => { setCancelModalOpen(false); setWoToCancel(null); setCancelReason(""); }}
+              disabled={isSubmittingCancel}
+            >
+              Cerrar
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              onClick={handleConfirmCancel}
+              disabled={isSubmittingCancel || !cancelReason.trim()}
+              className="gap-1.5"
+            >
+              {isSubmittingCancel && <Loader2 className="h-4 w-4 animate-spin" />}
+              Confirmar Cancelación
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

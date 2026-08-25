@@ -641,9 +641,12 @@ export default function CuentasPorCobrarPage() {
     quotes.forEach(q => {
       if (q.status !== "Aceptada" && q.status !== "Pagada") return;
       if (!isGlobalCobranza && user && q.userId !== user.uid) return;
-      total++;
       const { daysOverdue, isFullyPaid, linkedOt, isOtCompletedWithoutInvoice, latestPromisedDate } = getQuoteCalculations(q);
 
+      // Descartar automáticamente de Pagos si la OT fue Cancelada
+      if (linkedOt && (linkedOt.status === "Cancelada" || linkedOt.status === "Cancelado")) return;
+
+      total++;
       if (linkedOt) conOt++;
       if (isOtCompletedWithoutInvoice) otSinFactura++;
       if (!isFullyPaid && latestPromisedDate) conPromesa++;
@@ -674,6 +677,11 @@ export default function CuentasPorCobrarPage() {
         return false;
       }
       const { daysOverdue, isFullyPaid, hasPartialPayment, linkedOt, isOtCompletedWithoutInvoice, latestPromisedDate } = getQuoteCalculations(q);
+
+      // Descartar automáticamente de Pagos si la OT fue Cancelada
+      if (linkedOt && (linkedOt.status === "Cancelada" || linkedOt.status === "Cancelado")) {
+        return false;
+      }
       const alertThreshold = preferences.alertDaysBeforeDue || 7;
 
       // 1. Status Filter
@@ -794,9 +802,13 @@ export default function CuentasPorCobrarPage() {
         pendingAmount, 
         daysOverdue, 
         isFullyPaid, 
+        linkedOt,
         isOtCompletedWithoutInvoice,
         latestPromisedDate 
       } = getQuoteCalculations(q);
+
+      // Descartar automáticamente de Pagos si la OT fue Cancelada
+      if (linkedOt && (linkedOt.status === "Cancelada" || linkedOt.status === "Cancelado")) return;
 
       totalCartera += total;
       totalCobrado += paidAmount;
@@ -893,6 +905,9 @@ export default function CuentasPorCobrarPage() {
       if (!isGlobalCobranza && user && q.userId !== user.uid) return;
       const cName = q.clientName?.trim() || "Sin Cliente";
       const calcs = getQuoteCalculations(q);
+
+      // Descartar automáticamente de Pagos si la OT fue Cancelada
+      if (calcs.linkedOt && (calcs.linkedOt.status === "Cancelada" || calcs.linkedOt.status === "Cancelado")) return;
 
       const existing = map.get(cName) || {
         clientName: cName,

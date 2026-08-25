@@ -102,7 +102,8 @@ service cloud.firestore {
     match /ordenes_de_trabajo/{otId} {
       allow create: if (isAdmin() || hasPermission('work_orders') || hasPermission('quotes'));
       allow list, get: if isAdmin() || hasPermission('work_orders') || hasPermission('quotes') || hasPermission('accounts_receivable') || resource.data.userId == request.auth.uid;
-      allow update, delete: if isAdmin() || hasPermission('work_orders') || hasPermission('quotes') || resource.data.userId == request.auth.uid;
+      allow update: if isAdmin() || hasPermission('work_orders') || hasPermission('quotes') || resource.data.userId == request.auth.uid;
+      allow delete: if isAdmin();
     }
   }
 }
