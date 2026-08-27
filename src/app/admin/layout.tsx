@@ -28,7 +28,11 @@ import { errorEmitter } from "@/lib/error-emitter";
 import { FirestorePermissionError } from "@/lib/errors";
 
 type UserProfile = {
+    displayName?: string;
+    name?: string;
     role: 'admin' | 'employee';
+    jobTitle?: string;
+    department?: string;
     permissions?: { [key: string]: boolean };
 };
 
@@ -216,33 +220,44 @@ export default function AdminLayout({
                 <div className="w-full flex-1">
                 </div>
 
-                <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                    <Button variant="secondary" size="icon" className="rounded-full">
-                        <Avatar className="h-8 w-8">
-                        <AvatarFallback>
-                            <User className="h-5 w-5" />
-                        </AvatarFallback>
-                        </Avatar>
-                        <span className="sr-only">Abrir/cerrar menú de usuario</span>
-                    </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end" className="w-48">
-                        <DropdownMenuLabel>Mi Cuenta</DropdownMenuLabel>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem onClick={() => router.push('/profile')}>
-                            <User className="mr-2 h-4 w-4" /> Perfil
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => router.push('/admin/configuracion')}>
-                            <Settings className="mr-2 h-4 w-4" /> Configuración
-                        </DropdownMenuItem>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem onClick={handleSignOut} className="text-red-600 dark:text-red-400">
-                            <LogOut className="mr-2 h-4 w-4" />
-                            Cerrar Sesión
-                        </DropdownMenuItem>
-                    </DropdownMenuContent>
-                </DropdownMenu>
+                <div className="flex items-center gap-3 shrink-0">
+                    <span className="text-xs sm:text-sm text-muted-foreground font-normal whitespace-nowrap">
+                        ¡Hola, <strong className="text-foreground font-semibold">{userProfile?.displayName || userProfile?.name || user?.displayName || user?.email?.split('@')[0] || "Usuario"}</strong>!
+                    </span>
+
+                    <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                        <Button variant="secondary" size="icon" className="rounded-full">
+                            <Avatar className="h-8 w-8">
+                            <AvatarFallback>
+                                <User className="h-5 w-5" />
+                            </AvatarFallback>
+                            </Avatar>
+                            <span className="sr-only">Abrir/cerrar menú de usuario</span>
+                        </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" className="w-56">
+                            <DropdownMenuLabel>
+                                <div className="flex flex-col space-y-1">
+                                    <p className="text-sm font-medium leading-none">{userProfile?.displayName || userProfile?.name || user?.displayName || "Mi Cuenta"}</p>
+                                    <p className="text-xs leading-none text-muted-foreground">{user?.email}</p>
+                                </div>
+                            </DropdownMenuLabel>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem onClick={() => router.push('/profile')}>
+                                <User className="mr-2 h-4 w-4" /> Perfil
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => router.push('/admin/configuracion')}>
+                                <Settings className="mr-2 h-4 w-4" /> Configuración
+                            </DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem onClick={handleSignOut} className="text-red-600 dark:text-red-400">
+                                <LogOut className="mr-2 h-4 w-4" />
+                                Cerrar Sesión
+                            </DropdownMenuItem>
+                        </DropdownMenuContent>
+                    </DropdownMenu>
+                </div>
             </header>
             <main className="flex-1 overflow-auto p-4 lg:p-6 bg-background">
             {children}

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { useAuth } from "@/hooks/use-auth";
 import { db } from "@/lib/firebase";
 import { doc, getDoc, updateDoc } from "firebase/firestore";
@@ -114,6 +114,38 @@ export default function ConfiguracionPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
 
+  // Ref to remember the theme that was active when entering this page
+  const originalThemeRef = useRef<Theme>(theme);
+  // Ref to know if the user explicitly saved (so the cleanup effect doesn't revert)
+  const savedRef = useRef(false);
+
+  // On unmount: revert theme to what it was before if the user didn't save
+  useEffect(() => {
+    originalThemeRef.current = theme; // capture initial theme once mounted
+    return () => {
+      if (!savedRef.current) {
+        const revertTo = originalThemeRef.current;
+        // Update React state
+        setTheme(revertTo);
+        // Also revert localStorage and DOM immediately (synchronous) so navigating
+        // to another page doesn't pick up the unsaved preview theme
+        try {
+          localStorage.setItem("lebaref_theme_preference", revertTo);
+        } catch {}
+        const isDark =
+          revertTo === "dark" ||
+          (revertTo === "system" &&
+            window.matchMedia("(prefers-color-scheme: dark)").matches);
+        if (isDark) {
+          document.documentElement.classList.add("dark");
+        } else {
+          document.documentElement.classList.remove("dark");
+        }
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const [userProfile, setUserProfile] = useState<{
     displayName?: string;
     email?: string;
@@ -160,9 +192,10 @@ export default function ConfiguracionPage() {
           };
           setPrefs(loadedPrefs);
 
-          // Sync theme if different
+          // Sync theme if different; also update original ref so revert goes to the saved value
           if (data.theme && data.theme !== theme) {
             setTheme(data.theme);
+            originalThemeRef.current = data.theme;
           }
         }
       } catch (err) {
@@ -175,9 +208,9 @@ export default function ConfiguracionPage() {
     loadData();
   }, [user, authIsLoading]);
 
-  // Handle Theme Selection
+  // Handle Theme Selection — applies theme as a live preview; reverts on navigate away if not saved
   const handleSelectTheme = (newTheme: Theme) => {
-    setTheme(newTheme);
+    setTheme(newTheme); // preview only — cleanup effect reverts if user doesn't save
     setPrefs((prev) => ({ ...prev, theme: newTheme }));
   };
 
@@ -190,6 +223,10 @@ export default function ConfiguracionPage() {
       setIsSaving(true);
       const userRef = doc(db, "users", user.uid);
       const chosenTheme = prefs.theme || theme;
+
+      // Mark as saved so the cleanup effect won't revert the theme on navigate away
+      savedRef.current = true;
+      originalThemeRef.current = chosenTheme;
 
       // Apply theme globally upon explicit save
       setTheme(chosenTheme);
@@ -712,7 +749,7 @@ export default function ConfiguracionPage() {
                 <div
                   onClick={() => handleSelectTheme("light")}
                   className={`cursor-pointer rounded-2xl border-2 p-5 transition-all relative flex flex-col justify-between ${
-                    theme === "light"
+                    prefs.theme === "light"
                       ? "border-primary bg-primary/5 ring-4 ring-primary/10 shadow-sm"
                       : "border-border bg-card hover:border-primary/40 hover:bg-muted/30"
                   }`}
@@ -722,7 +759,7 @@ export default function ConfiguracionPage() {
                       <div className="p-2.5 bg-amber-100 text-amber-600 dark:bg-amber-950 dark:text-amber-400 rounded-xl">
                         <Sun className="h-6 w-6" />
                       </div>
-                      {theme === "light" && (
+                      {prefs.theme === "light" && (
                         <span className="flex items-center gap-1 bg-primary text-primary-foreground text-xs font-bold px-2 py-0.5 rounded-full">
                           <Check className="h-3 w-3" /> Activo
                         </span>
@@ -746,7 +783,7 @@ export default function ConfiguracionPage() {
                 <div
                   onClick={() => handleSelectTheme("dark")}
                   className={`cursor-pointer rounded-2xl border-2 p-5 transition-all relative flex flex-col justify-between ${
-                    theme === "dark"
+                    prefs.theme === "dark"
                       ? "border-primary bg-primary/5 ring-4 ring-primary/10 shadow-sm"
                       : "border-border bg-card hover:border-primary/40 hover:bg-muted/30"
                   }`}
@@ -756,7 +793,7 @@ export default function ConfiguracionPage() {
                       <div className="p-2.5 bg-indigo-100 text-indigo-600 dark:bg-indigo-950 dark:text-indigo-400 rounded-xl">
                         <Moon className="h-6 w-6" />
                       </div>
-                      {theme === "dark" && (
+                      {prefs.theme === "dark" && (
                         <span className="flex items-center gap-1 bg-primary text-primary-foreground text-xs font-bold px-2 py-0.5 rounded-full">
                           <Check className="h-3 w-3" /> Activo
                         </span>
@@ -780,7 +817,7 @@ export default function ConfiguracionPage() {
                 <div
                   onClick={() => handleSelectTheme("system")}
                   className={`cursor-pointer rounded-2xl border-2 p-5 transition-all relative flex flex-col justify-between ${
-                    theme === "system"
+                    prefs.theme === "system"
                       ? "border-primary bg-primary/5 ring-4 ring-primary/10 shadow-sm"
                       : "border-border bg-card hover:border-primary/40 hover:bg-muted/30"
                   }`}
@@ -790,7 +827,7 @@ export default function ConfiguracionPage() {
                       <div className="p-2.5 bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-xl">
                         <Laptop className="h-6 w-6" />
                       </div>
-                      {theme === "system" && (
+                      {prefs.theme === "system" && (
                         <span className="flex items-center gap-1 bg-primary text-primary-foreground text-xs font-bold px-2 py-0.5 rounded-full">
                           <Check className="h-3 w-3" /> Activo
                         </span>
