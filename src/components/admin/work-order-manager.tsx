@@ -26,7 +26,7 @@ import {
 import {
   MoreHorizontal, PlusCircle, Download, Trash2, Edit, Loader2,
   ArrowUpDown, Calendar as CalendarIcon, Eraser, ChevronDown, Link as LinkIcon,
-  ExternalLink, FileText,
+  ExternalLink, FileText, AlertTriangle, AlertCircle, RotateCcw,
 } from "lucide-react";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
@@ -39,7 +39,7 @@ import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import {
   collection, onSnapshot, deleteDoc, doc, serverTimestamp,
-  runTransaction, updateDoc, query, where, or,
+  runTransaction, updateDoc, getDoc, query, where, or,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { Badge } from "@/components/ui/badge";
@@ -62,7 +62,6 @@ import {
 } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import { AlertTriangle } from "lucide-react";
 import { es } from "date-fns/locale";
 import { cn } from "@/lib/utils";
 import { useRouter } from "next/navigation";
@@ -102,6 +101,12 @@ export type WorkOrder = {
   cancelledById?: string;
   cancelledAt?: string;
   cancellationReason?: string;
+  // Auditoría de Reactivación
+  wasReactivated?: boolean;
+  reactivatedBy?: string;
+  reactivatedById?: string;
+  reactivatedAt?: string;
+  reactivationReason?: string;
 };
 
 type UserProfile = {
@@ -124,23 +129,35 @@ const STATUS_CONFIG: Record<string, { label: string; className: string }> = {
   "Cancelado":  { label: "Cancelada",  className: "bg-red-100 text-red-700 border border-red-300" },
 };
 
-const StatusBadge = ({ status, wo }: { status: string; wo?: WorkOrder }) => {
+const StatusBadge = ({ status, wo, onViewCancel }: { status: string; wo?: WorkOrder; onViewCancel?: (wo: WorkOrder) => void }) => {
   const cfg = STATUS_CONFIG[status] ?? { label: status, className: "bg-gray-100 text-gray-700 border border-gray-300" };
 
-  if ((status === "Cancelada" || status === "Cancelado") && wo?.cancellationReason) {
+  if (status === "Cancelada" || status === "Cancelado") {
     return (
       <TooltipProvider>
         <Tooltip>
           <TooltipTrigger asChild>
-            <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-semibold cursor-help ${cfg.className}`}>
+            <button
+              type="button"
+              onClick={(e) => {
+                if (onViewCancel && wo) {
+                  e.stopPropagation();
+                  onViewCancel(wo);
+                }
+              }}
+              className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-semibold cursor-pointer hover:ring-2 hover:ring-red-400 transition-all ${cfg.className}`}
+            >
+              <AlertTriangle className="h-3 w-3 text-red-500 shrink-0" />
               {cfg.label}
-            </span>
+            </button>
           </TooltipTrigger>
-          <TooltipContent className="max-w-xs space-y-1 p-2.5 text-xs bg-slate-900 text-slate-100 border-slate-800 shadow-lg">
-            <p className="font-bold text-red-400">Orden Cancelada</p>
-            <p><span className="text-slate-400">Motivo:</span> {wo.cancellationReason}</p>
-            {wo.cancelledBy && <p><span className="text-slate-400">Por:</span> {wo.cancelledBy}</p>}
-            {wo.cancelledAt && (
+          <TooltipContent className="max-w-xs space-y-1.5 p-3 text-xs bg-slate-900 text-slate-100 border-slate-800 shadow-xl rounded-lg">
+            <p className="font-bold text-red-400 flex items-center gap-1">
+              <AlertTriangle className="h-3.5 w-3.5" /> Orden Cancelada (Clic para ver)
+            </p>
+            <p><span className="text-slate-400 font-medium">Motivo:</span> {wo?.cancellationReason || "Motivo no especificado."}</p>
+            {wo?.cancelledBy && <p><span className="text-slate-400 font-medium">Por:</span> {wo.cancelledBy}</p>}
+            {wo?.cancelledAt && (
               <p className="text-[10px] text-slate-400">
                 {new Date(wo.cancelledAt).toLocaleString("es-MX")}
               </p>
@@ -151,10 +168,51 @@ const StatusBadge = ({ status, wo }: { status: string; wo?: WorkOrder }) => {
     );
   }
 
+  const isReactivated = !!((wo as any)?.wasReactivated || (wo?.reactivatedAt && status !== "Cancelada"));
+
   return (
-    <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${cfg.className}`}>
-      {cfg.label}
-    </span>
+    <div className="flex items-center gap-1.5 flex-wrap">
+      <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${cfg.className}`}>
+        {cfg.label}
+      </span>
+      {isReactivated && (
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                onClick={(e) => {
+                  if (onViewCancel && wo) {
+                    e.stopPropagation();
+                    onViewCancel(wo);
+                  }
+                }}
+                className="inline-flex items-center gap-1 text-[10px] font-semibold bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 dark:bg-blue-950/60 dark:text-blue-300 dark:border-blue-800 px-2 py-0.5 rounded-full cursor-pointer transition-all shadow-xs"
+              >
+                <RotateCcw className="h-2.5 w-2.5 text-blue-600 dark:text-blue-400 shrink-0" />
+                Reactivada
+              </button>
+            </TooltipTrigger>
+            <TooltipContent className="max-w-xs space-y-1.5 p-3 text-xs bg-slate-900 text-slate-100 border-slate-800 shadow-xl rounded-lg">
+              <p className="font-bold text-blue-400 flex items-center gap-1">
+                <RotateCcw className="h-3 w-3" /> Orden Reactivada tras cancelación
+              </p>
+              {wo?.reactivationReason && (
+                <p><span className="text-slate-400 font-medium">Nota de reactivación:</span> {wo.reactivationReason}</p>
+              )}
+              {wo?.cancellationReason && (
+                <p className="text-[11px] text-rose-300 border-t border-slate-800 pt-1">
+                  <span className="text-slate-400 font-medium">Cancelación previa:</span> {wo.cancellationReason}
+                </p>
+              )}
+              {wo?.reactivatedBy && (
+                <p className="text-[10px] text-slate-400">Por {wo.reactivatedBy} el {wo.reactivatedAt ? new Date(wo.reactivatedAt).toLocaleDateString("es-MX") : ""}</p>
+              )}
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+      )}
+    </div>
   );
 };
 
@@ -263,24 +321,36 @@ const downloadPDF = (ot: WorkOrder) => {
 
   let finalY = (doc as any).lastAutoTable.finalY;
 
-  // Tabla de ítems y actividades — Estrictamente SIN precios
+  // Tabla de ítems y actividades — Estrictamente SIN precios (Mapeo seguro)
+  const itemsList = ot.items || [];
+  const tableBody: any[] = itemsList.length > 0
+    ? itemsList.map((item, i) => [
+        { content: i + 1,                               styles: { halign: "center" as const } },
+        { content: item.description || "—",             styles: { halign: "left" as const } },
+        { content: item.unidad || (item as any).unit || "PZA", styles: { halign: "center" as const } },
+        { content: (item.quantity || 0).toLocaleString("es-MX", { minimumFractionDigits: 2 }), styles: { halign: "center" as const } },
+      ])
+    : [
+        [
+          { content: 1, styles: { halign: "center" as const } },
+          { content: ot.tipoServicio ? `${ot.tipoServicio} - ${ot.tipoTrabajo || "Servicio técnico"}` : "Servicio técnico operativo según cotización", styles: { halign: "left" as const } },
+          { content: "Servicio", styles: { halign: "center" as const } },
+          { content: "1.00", styles: { halign: "center" as const } },
+        ]
+      ];
+
   autoTable(doc, {
     startY: finalY + 3,
     didDrawPage: (data) => {
       if (data.pageNumber > lastPage) { drawHeader(); lastPage = data.pageNumber; }
     },
     head: [[
-      { content: "#", styles: { halign: "center" } },
-      { content: "DESCRIPCIÓN DE ACTIVIDAD / MATERIAL / REFACCIÓN",  styles: { halign: "left" } },
-      { content: "UNIDAD",       styles: { halign: "center" } },
-      { content: "CANTIDAD",     styles: { halign: "center" } },
+      { content: "#", styles: { halign: "center" as const } },
+      { content: "DESCRIPCIÓN DE ACTIVIDAD / MATERIAL / REFACCIÓN",  styles: { halign: "left" as const } },
+      { content: "UNIDAD",       styles: { halign: "center" as const } },
+      { content: "CANTIDAD",     styles: { halign: "center" as const } },
     ]],
-    body: ot.items.map((item, i) => [
-      { content: i + 1,                               styles: { halign: "center" } },
-      { content: item.description || "—",             styles: { halign: "left" } },
-      { content: item.unidad || "PZA",                styles: { halign: "center" } },
-      { content: (item.quantity || 0).toLocaleString("es-MX", { minimumFractionDigits: 2 }), styles: { halign: "center" } },
-    ]),
+    body: tableBody,
     theme: "grid",
     headStyles: { fillColor: primaryColor, textColor: 255, fontStyle: "bold", fontSize: 7.5 },
     bodyStyles: { fontSize: 7, overflow: "linebreak", textColor: [30, 41, 59] },
@@ -376,11 +446,18 @@ export function WorkOrderManager() {
   const [selectedWO, setSelectedWO] = useState<WorkOrder | null>(null);
   const [date, setDate] = useState<DateRange | undefined>(undefined);
 
-  // Cancellation Modal State
+  // Cancellation & Reactivation Modal State
   const [cancelModalOpen, setCancelModalOpen] = useState(false);
   const [woToCancel, setWoToCancel] = useState<WorkOrder | null>(null);
   const [cancelReason, setCancelReason] = useState("");
   const [isSubmittingCancel, setIsSubmittingCancel] = useState(false);
+  const [viewCancelWo, setViewCancelWo] = useState<WorkOrder | null>(null);
+
+  const [reactivateModalOpen, setReactivateModalOpen] = useState(false);
+  const [woToReactivate, setWoToReactivate] = useState<WorkOrder | null>(null);
+  const [reactivateReason, setReactivateReason] = useState("");
+  const [isSubmittingReactivate, setIsSubmittingReactivate] = useState(false);
+  const [viewAuditWo, setViewAuditWo] = useState<WorkOrder | null>(null);
 
   // Load user profile
   useEffect(() => {
@@ -584,6 +661,58 @@ export function WorkOrderManager() {
     }
   }, [woToCancel, cancelReason, userProfile, user, toast]);
 
+  // Confirm Reactivation with audit & quote synchronization
+  const handleConfirmReactivate = useCallback(async () => {
+    if (!woToReactivate || !user) return;
+    setIsSubmittingReactivate(true);
+    try {
+      const ref = doc(db, "ordenes_de_trabajo", woToReactivate.id);
+      const userName = userProfile?.displayName || user?.displayName || user?.email || "Usuario";
+      const nowIso = new Date().toISOString();
+      const reasonText = reactivateReason.trim() || "Reactivada por el administrador";
+
+      await updateDoc(ref, {
+        status: "Pendiente",
+        wasReactivated: true,
+        reactivatedBy: userName,
+        reactivatedById: user.uid,
+        reactivatedAt: nowIso,
+        reactivationReason: reasonText,
+      });
+
+      // Si venía de una cotización vinculada que estaba rechazada, sincronizarla a Aceptada
+      if (woToReactivate.quoteId) {
+        try {
+          const qRef = doc(db, "quotes", woToReactivate.quoteId);
+          const qSnap = await getDoc(qRef);
+          if (qSnap.exists() && qSnap.data().status === "Rechazada") {
+            await updateDoc(qRef, {
+              status: "Aceptada",
+              wasReactivated: true,
+              reactivatedBy: userName,
+              reactivatedAt: nowIso,
+              reactivationReason: `Reactivada desde OT ${woToReactivate.otNumber}: ${reasonText}`,
+            });
+          }
+        } catch (syncErr) {
+          console.warn("Error al sincronizar cotización con OT reactivada:", syncErr);
+        }
+      }
+
+      toast({
+        title: "¡OT Reactivada!",
+        description: `La orden ${woToReactivate.otNumber} pasó a Pendiente y fue reincorporada a la operación y CxC.`,
+      });
+      setReactivateModalOpen(false);
+      setWoToReactivate(null);
+      setReactivateReason("");
+    } catch {
+      errorEmitter.emit("permission-error", new FirestorePermissionError({ path: `ordenes_de_trabajo/${woToReactivate.id}`, operation: "update" }));
+    } finally {
+      setIsSubmittingReactivate(false);
+    }
+  }, [woToReactivate, reactivateReason, user, userProfile, toast]);
+
   // Columns
   const columns: ColumnDef<WorkOrder>[] = useMemo(() => [
     {
@@ -594,6 +723,23 @@ export function WorkOrderManager() {
         </Button>
       ),
       cell: ({ row }) => <span className="font-mono font-bold text-foreground">{row.original.otNumber || "N/A"}</span>,
+    },
+    {
+      accessorKey: "quoteNumber",
+      id: "quoteRef",
+      header: ({ column }) => (
+        <Button variant="ghost" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
+          Cot. Origen <ArrowUpDown className="ml-2 h-4 w-4" />
+        </Button>
+      ),
+      cell: ({ row }) => row.original.quoteNumber
+        ? (
+          <Button variant="link" size="sm" className="h-auto p-0 text-xs font-mono font-semibold"
+            onClick={() => router.push(`/admin/quotes?id=${row.original.quoteId}`)}>
+            <LinkIcon className="mr-1 h-3 w-3" />{row.original.quoteNumber}
+          </Button>
+        )
+        : <span className="text-muted-foreground text-xs">—</span>,
     },
     {
       accessorKey: "clientName",
@@ -624,25 +770,14 @@ export function WorkOrderManager() {
     {
       accessorKey: "status",
       header: "Estado",
-      cell: ({ row }) => <StatusBadge status={row.original.status} wo={row.original} />,
-    },
-    {
-      id: "quoteRef",
-      header: "COT Origen",
-      cell: ({ row }) => row.original.quoteNumber
-        ? (
-          <Button variant="link" size="sm" className="h-auto p-0 text-xs"
-            onClick={() => router.push(`/admin/quotes?id=${row.original.quoteId}`)}>
-            <LinkIcon className="mr-1 h-3 w-3" />{row.original.quoteNumber}
-          </Button>
-        )
-        : <span className="text-muted-foreground text-xs">—</span>,
+      cell: ({ row }) => <StatusBadge status={row.original.status} wo={row.original} onViewCancel={setViewCancelWo} />,
     },
     {
       id: "actions",
       cell: ({ row }) => {
         const wo = row.original;
         const validTransitions = getValidTransitions(wo.status);
+        const isCancelled = wo.status === "Cancelada" || wo.status === "Cancelado";
         return (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
@@ -655,6 +790,35 @@ export function WorkOrderManager() {
               <DropdownMenuItem onClick={() => { setSelectedWO(wo); setIsFormOpen(true); }}>
                 <Edit className="mr-2 h-4 w-4" /> Editar Orden
               </DropdownMenuItem>
+
+              {isCancelled && (
+                <>
+                  <DropdownMenuItem onClick={() => setViewCancelWo(wo)} className="cursor-pointer text-destructive font-medium">
+                    <AlertTriangle className="mr-2 h-4 w-4 text-destructive" /> Ver Motivo de Cancelación
+                  </DropdownMenuItem>
+                </>
+              )}
+
+              {/* Reactivar Orden (exclusivo para cuando está cancelada) */}
+              {isCancelled && (userProfile?.role === "admin" || userProfile?.permissions?.work_orders) && (
+                <>
+                  <DropdownMenuItem 
+                    onClick={() => { setWoToReactivate(wo); setReactivateReason(""); setReactivateModalOpen(true); }} 
+                    className="cursor-pointer text-blue-600 dark:text-blue-400 font-semibold"
+                  >
+                    <RotateCcw className="mr-2 h-4 w-4" /> Reactivar Orden de Trabajo
+                  </DropdownMenuItem>
+                </>
+              )}
+
+              {/* Ver Historial de Auditoría si tiene cancelaciones o reactivaciones */}
+              {(wo.reactivatedAt || (wo as any).wasReactivated || wo.cancellationReason) && !isCancelled && (
+                <>
+                  <DropdownMenuItem onClick={() => setViewAuditWo(wo)} className="cursor-pointer text-blue-600 dark:text-blue-400">
+                    <RotateCcw className="mr-2 h-4 w-4 text-blue-600 dark:text-blue-400" /> Ver Historial / Auditoría
+                  </DropdownMenuItem>
+                </>
+              )}
 
               <DropdownMenuSeparator />
 
@@ -745,6 +909,21 @@ export function WorkOrderManager() {
     getSortedRowModel: getSortedRowModel(),
     onSortingChange: setSorting,
     onColumnFiltersChange: setColumnFilters,
+    globalFilterFn: (row, _columnId, filterValue) => {
+      const search = String(filterValue).toLowerCase().trim();
+      if (!search) return true;
+      const wo = row.original;
+      const otNum = (wo.otNumber || "").toLowerCase();
+      const quoteNum = (wo.quoteNumber || "").toLowerCase();
+      const client = (wo.clientName || "").toLowerCase();
+      const tech = (wo.technician || "").toLowerCase();
+      const service = (wo.tipoServicio || "").toLowerCase();
+      const workType = (wo.tipoTrabajo || "").toLowerCase();
+      const status = (wo.status || "").toLowerCase();
+      const audit = `${(wo as any).wasReactivated || wo.reactivatedAt ? "reactivada reactivado" : ""} ${wo.reactivationReason || ""} ${wo.cancellationReason || ""}`.toLowerCase();
+      const searchableText = `${otNum} ${quoteNum} ${client} ${tech} ${service} ${workType} ${status} ${audit}`;
+      return search.split(/\s+/).filter(Boolean).every(t => searchableText.includes(t));
+    },
     initialState: { pagination: { pageSize: 10 } },
     state: { globalFilter: filter, columnFilters, sorting },
     onGlobalFilterChange: setFilter,
@@ -920,6 +1099,178 @@ export function WorkOrderManager() {
               {isSubmittingCancel && <Loader2 className="h-4 w-4 animate-spin" />}
               Confirmar Cancelación
             </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Modal para Consultar Motivo de Cancelación */}
+      <Dialog open={!!viewCancelWo} onOpenChange={(open) => { if (!open) setViewCancelWo(null); }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <div className="flex items-center gap-2 text-destructive">
+              <AlertTriangle className="h-5 w-5" />
+              <DialogTitle className="text-lg">Detalle de Cancelación - {viewCancelWo?.otNumber}</DialogTitle>
+            </div>
+            <DialogDescription className="text-xs pt-1">
+              Registro de auditoría y motivo por el cual esta orden de trabajo fue cancelada.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 py-2 text-sm">
+            <div className="p-3.5 bg-destructive/10 border border-destructive/20 rounded-xl text-foreground space-y-1">
+              <p className="font-semibold text-xs text-destructive flex items-center gap-1.5">
+                <AlertTriangle className="h-3.5 w-3.5" /> Motivo de Cancelación Registrado:
+              </p>
+              <p className="text-sm font-medium leading-relaxed pl-5">
+                {viewCancelWo?.cancellationReason || "Sin motivo específico registrado."}
+              </p>
+            </div>
+            <div className="grid grid-cols-2 gap-3 text-xs bg-muted/40 p-3 rounded-xl border">
+              <div>
+                <span className="font-semibold text-muted-foreground block">Cancelado por:</span>
+                <span className="font-medium text-foreground">{viewCancelWo?.cancelledBy || "No especificado"}</span>
+              </div>
+              <div>
+                <span className="font-semibold text-muted-foreground block">Fecha y Hora:</span>
+                <span className="font-medium text-foreground">
+                  {viewCancelWo?.cancelledAt ? new Date(viewCancelWo.cancelledAt).toLocaleString("es-MX") : "No registrada"}
+                </span>
+              </div>
+              <div className="col-span-2 pt-1 border-t">
+                <span className="font-semibold text-muted-foreground block">Impacto Contable:</span>
+                <span className="text-emerald-700 dark:text-emerald-400 font-medium">
+                  ✓ Descartada automáticamente de Cuentas por Cobrar
+                </span>
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setViewCancelWo(null)}>Cerrar</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Modal para Confirmar Reactivación de la OT */}
+      <Dialog open={reactivateModalOpen} onOpenChange={setReactivateModalOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <div className="flex items-center gap-2 text-blue-600 dark:text-blue-400">
+              <RotateCcw className="h-5 w-5" />
+              <DialogTitle className="text-lg">Reactivar {woToReactivate?.otNumber}</DialogTitle>
+            </div>
+            <DialogDescription className="text-xs pt-1">
+              La orden de trabajo pasará a estado <strong>Pendiente</strong>, se reincorporará a la operación y a <strong>Cuentas por Cobrar</strong>, y se sincronizará la cotización origen.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <div className="space-y-1.5">
+              <Label htmlFor="reactivate-reason" className="text-xs font-semibold text-foreground">
+                Nota o Motivo de Reactivación
+              </Label>
+              <Textarea
+                id="reactivate-reason"
+                placeholder="Ingresa la razón por la cual se reactiva esta orden de trabajo..."
+                value={reactivateReason}
+                onChange={(e) => setReactivateReason(e.target.value)}
+                className="min-h-[85px] text-sm"
+              />
+            </div>
+            <div className="text-[11px] text-muted-foreground bg-muted/40 p-2.5 rounded-lg border">
+              <p>👤 <strong>Reactivado por:</strong> {userProfile?.displayName || user?.displayName || user?.email || "Usuario"}</p>
+              <p>🕒 <strong>Fecha:</strong> {new Date().toLocaleString("es-MX")}</p>
+            </div>
+          </div>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => { setReactivateModalOpen(false); setWoToReactivate(null); setReactivateReason(""); }}
+              disabled={isSubmittingReactivate}
+            >
+              Cancelar
+            </Button>
+            <Button
+              type="button"
+              onClick={handleConfirmReactivate}
+              disabled={isSubmittingReactivate}
+              className="gap-1.5 bg-blue-600 hover:bg-blue-700 text-white"
+            >
+              {isSubmittingReactivate && <Loader2 className="h-4 w-4 animate-spin" />}
+              Confirmar Reactivación
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Modal para Consultar Historial y Auditoría de la OT */}
+      <Dialog open={!!viewAuditWo} onOpenChange={(open) => { if (!open) setViewAuditWo(null); }}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <div className="flex items-center gap-2 text-blue-600 dark:text-blue-400">
+              <RotateCcw className="h-5 w-5" />
+              <DialogTitle className="text-lg">Historial de Auditoría - {viewAuditWo?.otNumber}</DialogTitle>
+            </div>
+            <DialogDescription className="text-xs pt-1">
+              Trazabilidad operativa y cambios de estado para {viewAuditWo?.clientName}.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 py-2 text-sm">
+            <div className="relative pl-6 space-y-4 before:absolute before:left-2 before:top-2 before:bottom-2 before:w-0.5 before:bg-border">
+              {/* Evento 1: Creación */}
+              <div className="relative">
+                <div className="absolute -left-6 top-1 h-3.5 w-3.5 rounded-full bg-primary border-2 border-background" />
+                <p className="text-xs font-semibold text-foreground">Orden de Trabajo Generada</p>
+                <p className="text-[11px] text-muted-foreground">
+                  Fecha: {viewAuditWo?.date ? new Date(viewAuditWo.date.replace(/-/g, "/")).toLocaleDateString("es-MX") : "N/A"} • Cotización Origen: {viewAuditWo?.quoteNumber || "Directa"}
+                </p>
+              </div>
+
+              {/* Evento 2: Cancelación previa (si existió) */}
+              {viewAuditWo?.cancellationReason && (
+                <div className="relative">
+                  <div className="absolute -left-6 top-1 h-3.5 w-3.5 rounded-full bg-rose-500 border-2 border-background" />
+                  <p className="text-xs font-semibold text-rose-600 dark:text-rose-400">Cancelación Registrada</p>
+                  <p className="text-xs text-foreground bg-rose-50/80 dark:bg-rose-950/30 p-2 rounded-lg border border-rose-200 dark:border-rose-900 mt-1">
+                    "{viewAuditWo.cancellationReason}"
+                  </p>
+                  <p className="text-[10px] text-muted-foreground mt-0.5">
+                    Cancelado por: {viewAuditWo.cancelledBy || "Usuario"} {viewAuditWo.cancelledAt ? `el ${new Date(viewAuditWo.cancelledAt).toLocaleString("es-MX")}` : ""}
+                  </p>
+                </div>
+              )}
+
+              {/* Evento 3: Reactivación */}
+              {viewAuditWo?.reactivatedAt && (
+                <div className="relative">
+                  <div className="absolute -left-6 top-1 h-3.5 w-3.5 rounded-full bg-blue-500 border-2 border-background" />
+                  <p className="text-xs font-semibold text-blue-600 dark:text-blue-400">Orden Reactivada</p>
+                  {viewAuditWo.reactivationReason && (
+                    <p className="text-xs text-foreground bg-blue-50/80 dark:bg-blue-950/30 p-2 rounded-lg border border-blue-200 dark:border-blue-900 mt-1">
+                      "{viewAuditWo.reactivationReason}"
+                    </p>
+                  )}
+                  <p className="text-[10px] text-muted-foreground mt-0.5">
+                    Reactivado por: {viewAuditWo.reactivatedBy || "Usuario"} el {new Date(viewAuditWo.reactivatedAt).toLocaleString("es-MX")}
+                  </p>
+                </div>
+              )}
+
+              {/* Evento 4: Estado Actual */}
+              <div className="relative">
+                <div className="absolute -left-6 top-1 h-3.5 w-3.5 rounded-full bg-emerald-500 border-2 border-background" />
+                <p className="text-xs font-semibold text-foreground">Estado Operativo Actual</p>
+                <div className="pt-1 flex items-center gap-2">
+                  <Badge variant="outline" className="text-xs font-bold px-2.5 py-0.5 bg-emerald-50 text-emerald-700 border-emerald-300">
+                    {viewAuditWo?.status}
+                  </Badge>
+                  {viewAuditWo?.technician && (
+                    <span className="text-xs text-muted-foreground">Técnico: {viewAuditWo.technician}</span>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setViewAuditWo(null)}>Cerrar</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

@@ -4,8 +4,9 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState, useEffect } from "react";
-import { Home, Briefcase, FileText, Users, ShoppingCart, Truck, User, LogOut, Menu, Wrench, Package, Calendar, AreaChart, DollarSign, ClipboardList, Settings } from "lucide-react";
+import { Home, Briefcase, FileText, Users, ShoppingCart, Truck, User, LogOut, Menu, Wrench, Package, Calendar, AreaChart, DollarSign, ClipboardList, Settings, ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -221,42 +222,77 @@ export default function AdminLayout({
                 </div>
 
                 <div className="flex items-center gap-3 shrink-0">
-                    <span className="text-xs sm:text-sm text-muted-foreground font-normal whitespace-nowrap">
-                        ¡Hola, <strong className="text-foreground font-semibold">{userProfile?.displayName || userProfile?.name || user?.displayName || user?.email?.split('@')[0] || "Usuario"}</strong>!
-                    </span>
+                    {(() => {
+                        const fullName = userProfile?.displayName || userProfile?.name || user?.displayName || user?.email?.split('@')[0] || "Usuario";
+                        const firstName = fullName.split(' ')[0];
+                        const initials = fullName
+                            .split(' ')
+                            .filter(Boolean)
+                            .map((n: string) => n[0])
+                            .slice(0, 2)
+                            .join('')
+                            .toUpperCase() || "U";
+                        const roleLabel = userProfile?.role === 'admin' ? 'Admin' : 'Empleado';
+                        const subtitle = userProfile?.jobTitle || roleLabel;
 
-                    <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                        <Button variant="secondary" size="icon" className="rounded-full">
-                            <Avatar className="h-8 w-8">
-                            <AvatarFallback>
-                                <User className="h-5 w-5" />
-                            </AvatarFallback>
-                            </Avatar>
-                            <span className="sr-only">Abrir/cerrar menú de usuario</span>
-                        </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end" className="w-56">
-                            <DropdownMenuLabel>
-                                <div className="flex flex-col space-y-1">
-                                    <p className="text-sm font-medium leading-none">{userProfile?.displayName || userProfile?.name || user?.displayName || "Mi Cuenta"}</p>
-                                    <p className="text-xs leading-none text-muted-foreground">{user?.email}</p>
-                                </div>
-                            </DropdownMenuLabel>
-                            <DropdownMenuSeparator />
-                            <DropdownMenuItem onClick={() => router.push('/profile')}>
-                                <User className="mr-2 h-4 w-4" /> Perfil
-                            </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => router.push('/admin/configuracion')}>
-                                <Settings className="mr-2 h-4 w-4" /> Configuración
-                            </DropdownMenuItem>
-                            <DropdownMenuSeparator />
-                            <DropdownMenuItem onClick={handleSignOut} className="text-red-600 dark:text-red-400">
-                                <LogOut className="mr-2 h-4 w-4" />
-                                Cerrar Sesión
-                            </DropdownMenuItem>
-                        </DropdownMenuContent>
-                    </DropdownMenu>
+                        return (
+                            <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                    <Button 
+                                        variant="outline" 
+                                        className="h-10 pl-2 pr-3 py-1 rounded-full border-border/70 hover:bg-muted/50 hover:border-primary/30 transition-all flex items-center gap-2.5 shadow-sm bg-background"
+                                    >
+                                        <Avatar className="h-7 w-7 border border-primary/20 bg-primary/10 text-primary">
+                                            <AvatarFallback className="bg-primary/10 text-primary font-bold text-xs">
+                                                {initials}
+                                            </AvatarFallback>
+                                        </Avatar>
+                                        <div className="flex flex-col items-start text-left leading-tight hidden sm:flex">
+                                            <span className="text-xs font-semibold text-foreground truncate max-w-[120px]">
+                                                {firstName}
+                                            </span>
+                                            <span className="text-[10px] text-muted-foreground truncate max-w-[120px]">
+                                                {subtitle}
+                                            </span>
+                                        </div>
+                                        <ChevronDown className="h-3.5 w-3.5 text-muted-foreground opacity-60 ml-0.5" />
+                                    </Button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="end" className="w-64 p-2 shadow-xl border-border/80 rounded-xl">
+                                    <DropdownMenuLabel className="p-2 pb-3 font-normal">
+                                        <div className="flex items-center gap-3">
+                                            <Avatar className="h-10 w-10 border border-primary/20 bg-primary/10 text-primary">
+                                                <AvatarFallback className="bg-primary/15 text-primary font-bold text-sm">
+                                                    {initials}
+                                                </AvatarFallback>
+                                            </Avatar>
+                                            <div className="flex flex-col space-y-0.5 min-w-0 flex-1">
+                                                <p className="text-sm font-semibold text-foreground truncate">{fullName}</p>
+                                                <p className="text-xs text-muted-foreground truncate">{user?.email}</p>
+                                                <div className="pt-1">
+                                                    <Badge variant={userProfile?.role === 'admin' ? "default" : "secondary"} className="text-[10px] px-1.5 py-0 font-medium">
+                                                        {userProfile?.role === 'admin' ? 'Administrador' : 'Empleado'}
+                                                    </Badge>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </DropdownMenuLabel>
+                                    <DropdownMenuSeparator />
+                                    <DropdownMenuItem onClick={() => router.push('/profile')} className="cursor-pointer py-2 rounded-lg">
+                                        <User className="mr-2.5 h-4 w-4 text-primary" /> Mi Perfil
+                                    </DropdownMenuItem>
+                                    <DropdownMenuItem onClick={() => router.push('/admin/configuracion')} className="cursor-pointer py-2 rounded-lg">
+                                        <Settings className="mr-2.5 h-4 w-4 text-muted-foreground" /> Configuración
+                                    </DropdownMenuItem>
+                                    <DropdownMenuSeparator />
+                                    <DropdownMenuItem onClick={handleSignOut} className="cursor-pointer py-2 rounded-lg text-red-600 dark:text-red-400 focus:text-red-600 focus:bg-red-50 dark:focus:bg-red-950/40">
+                                        <LogOut className="mr-2.5 h-4 w-4 text-red-500" />
+                                        Cerrar Sesión
+                                    </DropdownMenuItem>
+                                </DropdownMenuContent>
+                            </DropdownMenu>
+                        );
+                    })()}
                 </div>
             </header>
             <main className="flex-1 overflow-auto p-4 lg:p-6 bg-background">

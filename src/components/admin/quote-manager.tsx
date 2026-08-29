@@ -37,7 +37,7 @@ import {
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
 } from "@/components/ui/dropdown-menu";
-import { MoreHorizontal, PlusCircle, Download, Trash2, Edit, Loader2, FileSpreadsheet, ArrowUpDown, Calendar as CalendarIcon, Eraser, ChevronDown } from "lucide-react";
+import { MoreHorizontal, PlusCircle, Download, Trash2, Edit, Loader2, FileSpreadsheet, ArrowUpDown, Calendar as CalendarIcon, Eraser, ChevronDown, AlertCircle, RotateCcw } from "lucide-react";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -53,7 +53,7 @@ import { useToast } from "@/hooks/use-toast";
 import { QuoteForm } from "@/components/forms/quote-form";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
-import { collection, onSnapshot, addDoc, updateDoc, deleteDoc, doc, serverTimestamp, runTransaction, getDoc, writeBatch, query, where } from "firebase/firestore";
+import { collection, onSnapshot, addDoc, updateDoc, deleteDoc, doc, serverTimestamp, runTransaction, getDoc, writeBatch, query, where, getDocs } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { Badge } from "../ui/badge";
 import { LOGO_BASE64 } from "@/lib/logo-base64";
@@ -73,11 +73,35 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
+import { AlertTriangle } from "lucide-react";
 import { Calendar } from "@/components/ui/calendar";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
 import { cn } from "@/lib/utils";
 import { useSearchParams } from "next/navigation";
+
+// ─── Transiciones permitidas de estado de cotización ───────────────────────────
+export const QUOTE_STATE_TRANSITIONS: Record<Quote['status'], Quote['status'][]> = {
+  "Borrador": ["Enviada"],
+  "Enviada": ["Aceptada", "Rechazada", "Borrador"],
+  "Aceptada": ["Rechazada", "Borrador"],
+  "Rechazada": ["Aceptada", "Borrador"],
+  "Pagada": ["Aceptada"], // Permite revertir a Aceptada si requiere ajustes contables
+};
+
+export const getValidQuoteTransitions = (currentStatus: Quote['status']): Quote['status'][] => {
+  return QUOTE_STATE_TRANSITIONS[currentStatus] ?? ["Borrador", "Enviada", "Aceptada", "Rechazada"];
+};
 
 export type QuoteSubItem = {
   description: string;
@@ -120,6 +144,7 @@ export type QuoteHistoryEntry = {
     tipoServicio?: string;
     tipoTrabajo?: string;
     equipoLugar?: string;
+    shortDescription?: string;
   };
 };
 
@@ -169,6 +194,7 @@ export type Quote = {
   tipoServicio?: string;
   tipoTrabajo?: string;
   equipoLugar?: string;
+  shortDescription?: string;
   userId: string;
   history?: QuoteHistoryEntry[];
   acceptedDate?: string;
@@ -177,12 +203,22 @@ export type Quote = {
   invoiceNumber?: string;
   collectionNotes?: CollectionNote[];
   customDueDate?: string;
+  rejectionReason?: string;
+  rejectedBy?: string;
+  rejectedAt?: string;
+  reactivationReason?: string;
+  reactivatedBy?: string;
+  reactivatedAt?: string;
 };
 
 type UserProfile = {
   role: 'admin' | 'employee';
   userCode: string;
   quoteCounter: number;
+  displayName?: string;
+  name?: string;
+  jobTitle?: string;
+  department?: string;
 };
 
 const createOrUpdateTicketFromQuote = async (quote: Quote, currentUserId: string) => {
@@ -461,7 +497,7 @@ const downloadPDF = async (quote: Quote) => {
         ]],
         body: (() => {
             const rows: any[] = [];
-            quote.items.forEach((item, index) => {
+            (quote.items || []).forEach((item, index) => {
                 const hasSubItems = item.subItems && item.subItems.length > 0;
                 const itemTotal = hasSubItems
                     ? item.subItems!.reduce((s, si) => s + (si.quantity || 0) * (si.price || 0), 0)
@@ -733,6 +769,49 @@ export function QuoteManager() {
   const [date, setDate] = useState<DateRange | undefined>(undefined);
   const [usersList, setUsersList] = useState<any[]>([]);
 
+  // Status Modal State (Rejection reason & Reactivation note)
+  const [statusModalOpen, setStatusModalOpen] = useState(false);
+  const [quoteForStatus, setQuoteForStatus] = useState<Quote | null>(null);
+  const [pendingStatus, setPendingStatus] = useState<Quote['status'] | null>(null);
+  const [statusReason, setStatusReason] = useState("");
+  const [isSubmittingStatus, setIsSubmittingStatus] = useState(false);
+  const [viewAuditQuote, setViewAuditQuote] = useState<Quote | null>(null);
+
+  // Helper para cancelar/desactivar OTs vinculadas cuando una cotización se rechaza o regresa a borrador
+  const cancelLinkedWorkOrders = useCallback(async (quote: Quote, reason: string, cancelledBy: string) => {
+    try {
+      const qCol = collection(db, "ordenes_de_trabajo");
+      const foundRefs = new Map<string, any>();
+
+      // 1. Buscar por quoteId (cotizaciones modernas)
+      if (quote.id) {
+        const qSnap1 = await getDocs(query(qCol, where("quoteId", "==", quote.id)));
+        qSnap1.docs.forEach(docSnap => foundRefs.set(docSnap.id, docSnap.ref));
+      }
+
+      // 2. Buscar por quoteNumber (soporte para cotizaciones y OTs antiguas)
+      if (quote.quoteNumber) {
+        const qSnap2 = await getDocs(query(qCol, where("quoteNumber", "==", quote.quoteNumber)));
+        qSnap2.docs.forEach(docSnap => foundRefs.set(docSnap.id, docSnap.ref));
+      }
+
+      if (foundRefs.size > 0) {
+        const batch = writeBatch(db);
+        foundRefs.forEach(ref => {
+          batch.update(ref, {
+            status: "Cancelada",
+            cancellationReason: `Cotización ${reason}`,
+            cancelledBy,
+            cancelledAt: new Date().toISOString()
+          });
+        });
+        await batch.commit();
+      }
+    } catch (err) {
+      console.error("Error al cancelar OTs vinculadas:", err);
+    }
+  }, []);
+
   // Load all users to get Job Title (Puesto) and Department
   useEffect(() => {
     if (!user) return;
@@ -750,6 +829,11 @@ export function QuoteManager() {
     usersList.forEach(u => {
       if (u.uid) map.set(u.uid, u);
       if (u.displayName) map.set(u.displayName.trim().toLowerCase(), u);
+      if (u.userCode) {
+        map.set(u.userCode.trim().toLowerCase(), u);
+        map.set(`c${u.userCode.trim().toLowerCase()}`, u);
+      }
+      if (u.email) map.set(u.email.trim().toLowerCase(), u);
     });
     return map;
   }, [usersList]);
@@ -859,6 +943,7 @@ export function QuoteManager() {
                 tipoServicio: selectedQuote.tipoServicio || "",
                 tipoTrabajo: selectedQuote.tipoTrabajo || "",
                 equipoLugar: selectedQuote.equipoLugar || "",
+                shortDescription: selectedQuote.shortDescription || "",
               }
             };
             const currentHistory = selectedQuote.history || [];
@@ -928,42 +1013,136 @@ export function QuoteManager() {
         toast({ title: "No autenticado", description: "Debes iniciar sesión para realizar esta acción.", variant: "destructive" });
         return;
     }
-    // Bloquear re-aceptación: si ya está Aceptada o Pagada, no se puede volver a aceptar
-    if (newStatus === "Aceptada" && (quote.status === "Aceptada" || quote.status === "Pagada")) {
+    if (quote.status === newStatus) return;
+
+    const allowed = getValidQuoteTransitions(quote.status);
+    if (!allowed.includes(newStatus)) {
         toast({
-            title: "Acción no permitida",
-            description: `Esta cotización ya fue aceptada anteriormente${quote.linkedTicketId ? ` y tiene el ticket vinculado.` : "."} No se puede volver a aceptar.`,
+            title: "Transición no permitida",
+            description: `No es posible pasar de "${quote.status}" a "${newStatus}". Sigue el ciclo de estados permitido.`,
             variant: "destructive",
         });
         return;
     }
+
+    // Si pasa a Rechazada desde Aceptada o de Rechazada a Aceptada (requieren nota):
+    if ((quote.status === "Aceptada" && newStatus === "Rechazada") || (quote.status === "Rechazada" && newStatus === "Aceptada")) {
+        setQuoteForStatus(quote);
+        setPendingStatus(newStatus);
+        setStatusReason("");
+        setStatusModalOpen(true);
+        return;
+    }
+
     const quoteRef = doc(db, "quotes", quote.id);
     const payload = { status: newStatus };
     try {
         if (newStatus === "Aceptada") {
             await createOrUpdateTicketFromQuote(quote, user.uid);
-            toast({ title: "¡Cotización Aceptada!", description: `Se ha generado/actualizado el ticket de servicio.` });
+            toast({ title: "¡Cotización Aceptada!", description: `Se ha generado/activado la orden de trabajo y el registro en CxC.` });
+        } else if (newStatus === "Borrador" && quote.status === "Aceptada") {
+            await updateDoc(quoteRef, payload);
+            await cancelLinkedWorkOrders(quote, "regresada a borrador", user.displayName || user.email || "Usuario");
+            toast({ title: "Estado Actualizado", description: `La cotización regresó a Borrador y la OT fue desactivada.` });
         } else {
             await updateDoc(quoteRef, payload);
             toast({ title: "Estado Actualizado", description: `La cotización para ${quote.clientName} ahora está ${newStatus}.` });
         }
     } catch (error: any) {
         console.error("Error updating quote status:", error);
-        if (error?.code === 'permission-denied' || error?.message?.includes('permission')) {
-            errorEmitter.emit('permission-error', new FirestorePermissionError({
-                path: quoteRef.path,
-                operation: 'update',
-                requestResourceData: payload,
-            }));
-        } else {
-            toast({
-                title: "Error al cambiar estado",
-                description: error?.message || "Ocurrió un error al cambiar el estado.",
-                variant: "destructive",
-            });
-        }
+        toast({
+            title: "Error al cambiar estado",
+            description: error?.message || "Ocurrió un error al cambiar el estado.",
+            variant: "destructive",
+        });
     }
-  }, [toast, user]);
+  }, [toast, user, cancelLinkedWorkOrders]);
+
+  const handleConfirmStatusModal = useCallback(async () => {
+    if (!quoteForStatus || !pendingStatus || !user) return;
+
+    if (!statusReason.trim()) {
+      toast({
+        title: "Motivo requerido",
+        description: pendingStatus === "Rechazada" ? "Debes ingresar el motivo por el cual se rechaza la cotización." : "Debes ingresar la nota de modificación/reactivación.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setIsSubmittingStatus(true);
+    try {
+      const quoteRef = doc(db, "quotes", quoteForStatus.id);
+      const userName = user.displayName || user.email || "Usuario";
+
+      if (pendingStatus === "Rechazada") {
+        await updateDoc(quoteRef, {
+          status: "Rechazada",
+          rejectionReason: statusReason.trim(),
+          rejectedBy: userName,
+          rejectedAt: new Date().toISOString(),
+        });
+
+        // Cancelar OT vinculada para que pase a gris/desactivada y no se cobre en CxC
+        await cancelLinkedWorkOrders(quoteForStatus, `rechazada: ${statusReason.trim()}`, userName);
+
+        toast({
+          title: "Cotización Rechazada",
+          description: `La cotización ha sido rechazada. La OT vinculada fue desactivada y retirada de CxC activo.`,
+        });
+      } else if (pendingStatus === "Aceptada") {
+        await createOrUpdateTicketFromQuote(quoteForStatus, user.uid);
+        const wasPreviouslyRejected = quoteForStatus.status === "Rechazada" || !!quoteForStatus.rejectionReason;
+        await updateDoc(quoteRef, {
+          status: "Aceptada",
+          wasReactivated: wasPreviouslyRejected,
+          reactivationReason: statusReason.trim(),
+          reactivatedBy: userName,
+          reactivatedAt: new Date().toISOString(),
+        });
+
+        // Marcar OTs vinculadas como reactivadas
+        try {
+          const qCol = collection(db, "ordenes_de_trabajo");
+          const qSnap = await getDocs(query(qCol, where("quoteId", "==", quoteForStatus.id)));
+          if (!qSnap.empty) {
+            const batch = writeBatch(db);
+            qSnap.docs.forEach(docSnap => {
+              batch.update(docSnap.ref, {
+                status: "Pendiente",
+                wasReactivated: true,
+                reactivatedBy: userName,
+                reactivatedAt: new Date().toISOString(),
+                reactivationReason: statusReason.trim(),
+              });
+            });
+            await batch.commit();
+          }
+        } catch (otErr) {
+          console.warn("No se pudieron marcar OTs vinculadas como reactivadas:", otErr);
+        }
+
+        toast({
+          title: "¡Cotización Reactivada / Aceptada!",
+          description: `La cotización y su orden de trabajo han sido reactivadas y reincorporadas a CxC con marca de auditoría.`,
+        });
+      }
+
+      setStatusModalOpen(false);
+      setQuoteForStatus(null);
+      setPendingStatus(null);
+      setStatusReason("");
+    } catch (err: any) {
+      console.error("Error en modal de estado:", err);
+      toast({
+        title: "Error",
+        description: err?.message || "No se pudo actualizar el estado de la cotización.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsSubmittingStatus(false);
+    }
+  }, [quoteForStatus, pendingStatus, user, statusReason, toast, cancelLinkedWorkOrders]);
 
   const columns: ColumnDef<Quote>[] = useMemo(
     () => [
@@ -993,6 +1172,19 @@ export function QuoteManager() {
         cell: ({ row }) => <span className="font-medium text-foreground">{row.original.clientName || "—"}</span>,
       },
       { 
+        accessorKey: "shortDescription", 
+        header: "Descripción",
+        cell: ({ row }) => {
+          const desc = row.original.shortDescription;
+          if (!desc) return <span className="text-muted-foreground text-xs">—</span>;
+          return (
+            <span className="text-xs text-foreground font-medium line-clamp-1 max-w-[200px]" title={desc}>
+              {desc}
+            </span>
+          );
+        },
+      },
+      { 
         accessorKey: "responsable", 
         header: ({ column }) => (
           <Button variant="ghost" size="sm" className="-ml-3 h-8 font-semibold" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
@@ -1002,31 +1194,28 @@ export function QuoteManager() {
         cell: ({ row }) => {
           const uInfo = (row.original.userId ? usersMap.get(row.original.userId) : null) || (row.original.responsable ? usersMap.get(row.original.responsable.trim().toLowerCase()) : null);
           const name = row.original.responsable || uInfo?.displayName || "—";
-          return <span className="font-medium text-foreground text-xs">{name}</span>;
-        }
-      },
-      { 
-        id: "puesto",
-        header: ({ column }) => (
-          <Button variant="ghost" size="sm" className="-ml-3 h-8 font-semibold" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
-            Puesto / Rol <ArrowUpDown className="ml-2 h-3.5 w-3.5" />
-          </Button>
-        ),
-        sortingFn: (rowA, rowB) => {
-          const uA = (rowA.original.userId ? usersMap.get(rowA.original.userId) : null) || (rowA.original.responsable ? usersMap.get(rowA.original.responsable.trim().toLowerCase()) : null);
-          const uB = (rowB.original.userId ? usersMap.get(rowB.original.userId) : null) || (rowB.original.responsable ? usersMap.get(rowB.original.responsable.trim().toLowerCase()) : null);
-          return (uA?.jobTitle || "").localeCompare(uB?.jobTitle || "");
-        },
-        cell: ({ row }) => {
-          const uInfo = (row.original.userId ? usersMap.get(row.original.userId) : null) || (row.original.responsable ? usersMap.get(row.original.responsable.trim().toLowerCase()) : null);
           const jobTitle = uInfo?.jobTitle;
-          return jobTitle ? (
-            <Badge variant="secondary" className="font-normal text-xs bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300">
-              {jobTitle}
-            </Badge>
-          ) : (
-            <span className="text-muted-foreground text-xs">—</span>
-          );
+
+          if (jobTitle) {
+            return (
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span className="font-medium text-foreground text-xs cursor-help underline decoration-dotted decoration-muted-foreground/40 underline-offset-2 hover:text-primary transition-colors">
+                      {name}
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent className="p-2 text-xs bg-slate-900 text-slate-100 border-slate-800 shadow-md">
+                    <p className="font-semibold text-slate-200">
+                      Puesto / Rol: <span className="font-normal text-amber-300">{jobTitle}</span>
+                    </p>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            );
+          }
+
+          return <span className="font-medium text-foreground text-xs">{name}</span>;
         }
       },
       { 
@@ -1104,10 +1293,71 @@ export function QuoteManager() {
             "Pagada": "bg-sky-100 text-sky-700 border-sky-300",
             "Rechazada": "bg-rose-100 text-rose-700 border-rose-300",
           };
+
+          if (status === "Rechazada" && row.original.rejectionReason) {
+            return (
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Badge variant="outline" className={cn("font-medium text-xs px-2.5 py-0.5 rounded-full border cursor-help inline-flex items-center gap-1", badgeStyles[status])}>
+                      <AlertCircle className="h-3 w-3 text-rose-600 shrink-0" />
+                      {status}
+                    </Badge>
+                  </TooltipTrigger>
+                  <TooltipContent className="max-w-xs space-y-1 p-2.5 text-xs bg-slate-900 text-slate-100 border-slate-800 shadow-xl rounded-lg">
+                    <p className="font-bold text-rose-400">Cotización Rechazada</p>
+                    <p><span className="text-slate-400 font-medium">Motivo:</span> {row.original.rejectionReason}</p>
+                    {row.original.rejectedBy && <p><span className="text-slate-400 font-medium">Por:</span> {row.original.rejectedBy}</p>}
+                    {row.original.rejectedAt && (
+                      <p className="text-[10px] text-slate-400">{new Date(row.original.rejectedAt).toLocaleString("es-MX")}</p>
+                    )}
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            );
+          }
+
+          const isReactivated = !!(row.original.reactivatedAt || (row.original as any).wasReactivated);
+
           return (
-            <Badge variant="outline" className={cn("font-medium text-xs px-2.5 py-0.5 rounded-full border", badgeStyles[status] || "bg-gray-100 text-gray-700")}>
-              {status}
-            </Badge>
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <Badge variant="outline" className={cn("font-medium text-xs px-2.5 py-0.5 rounded-full border", badgeStyles[status] || "bg-gray-100 text-gray-700")}>
+                {status}
+              </Badge>
+
+              {isReactivated && (
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); setViewAuditQuote(row.original); }}
+                        className="inline-flex items-center gap-1 text-[10px] font-semibold bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 dark:bg-blue-950/60 dark:text-blue-300 dark:border-blue-800 px-2 py-0.5 rounded-full cursor-pointer transition-all shadow-xs"
+                      >
+                        <RotateCcw className="h-2.5 w-2.5 text-blue-600 dark:text-blue-400 shrink-0" />
+                        Reactivada
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent className="max-w-xs space-y-1.5 p-3 text-xs bg-slate-900 text-slate-100 border-slate-800 shadow-xl rounded-lg">
+                      <p className="font-bold text-blue-400 flex items-center gap-1">
+                        <RotateCcw className="h-3 w-3" /> Reactivada tras rechazo previo
+                      </p>
+                      {row.original.reactivationReason && (
+                        <p><span className="text-slate-400 font-medium">Nota de reactivación:</span> {row.original.reactivationReason}</p>
+                      )}
+                      {row.original.rejectionReason && (
+                        <p className="text-[11px] text-rose-300 border-t border-slate-800 pt-1">
+                          <span className="text-slate-400 font-medium">Rechazo original:</span> {row.original.rejectionReason}
+                        </p>
+                      )}
+                      {row.original.reactivatedBy && (
+                        <p className="text-[10px] text-slate-400">Por {row.original.reactivatedBy} el {row.original.reactivatedAt ? new Date(row.original.reactivatedAt).toLocaleDateString("es-MX") : ""}</p>
+                      )}
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              )}
+            </div>
           );
         },
       },
@@ -1115,6 +1365,7 @@ export function QuoteManager() {
         id: "actions",
         cell: ({ row }) => {
            const quote = row.original;
+           const hasAuditHistory = !!(quote.reactivatedAt || (quote as any).wasReactivated || quote.rejectionReason);
            return (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -1133,20 +1384,37 @@ export function QuoteManager() {
                 <DropdownMenuItem onClick={() => downloadExcel(quote)}>
                   <FileSpreadsheet className="mr-2 h-4 w-4" /> Descargar Excel
                 </DropdownMenuItem>
+
+                {hasAuditHistory && (
+                  <DropdownMenuItem onClick={() => setViewAuditQuote(quote)} className="cursor-pointer text-blue-600 dark:text-blue-400 font-medium">
+                    <RotateCcw className="mr-2 h-4 w-4 text-blue-600 dark:text-blue-400" /> Ver Historial / Auditoría
+                  </DropdownMenuItem>
+                )}
                 <DropdownMenuSub>
-                    <DropdownMenuSubTrigger>Cambiar Estado</DropdownMenuSubTrigger>
-                    <DropdownMenuSubContent>
-                        <DropdownMenuRadioGroup 
-                            value={quote.status} 
-                            onValueChange={(newStatus) => handleStatusChange(quote, newStatus as Quote['status'])}
-                         >
-                             <DropdownMenuRadioItem value="Borrador">Borrador</DropdownMenuRadioItem>
-                             <DropdownMenuRadioItem value="Enviada">Enviada</DropdownMenuRadioItem>
-                             <DropdownMenuRadioItem value="Aceptada">Aceptada</DropdownMenuRadioItem>
-                             <DropdownMenuRadioItem value="Pagada">Pagada</DropdownMenuRadioItem>
-                             <DropdownMenuRadioItem value="Rechazada">Rechazada</DropdownMenuRadioItem>
-                        </DropdownMenuRadioGroup>
-                    </DropdownMenuSubContent>
+                    <DropdownMenuSubTrigger 
+                      disabled={getValidQuoteTransitions(quote.status).length === 0}
+                      className={getValidQuoteTransitions(quote.status).length === 0 ? "opacity-50 cursor-not-allowed" : ""}
+                    >
+                      Cambiar Estado
+                    </DropdownMenuSubTrigger>
+                    {getValidQuoteTransitions(quote.status).length > 0 && (
+                      <DropdownMenuSubContent>
+                          <DropdownMenuLabel className="text-xs text-muted-foreground font-normal pb-1">
+                              Actual: <Badge variant="outline" className="ml-1 text-[10px]">{quote.status}</Badge>
+                          </DropdownMenuLabel>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuRadioGroup 
+                              value={quote.status} 
+                              onValueChange={(newStatus) => handleStatusChange(quote, newStatus as Quote['status'])}
+                           >
+                              {getValidQuoteTransitions(quote.status).map(st => (
+                                  <DropdownMenuRadioItem key={st} value={st} className="cursor-pointer">
+                                      {st}
+                                  </DropdownMenuRadioItem>
+                              ))}
+                          </DropdownMenuRadioGroup>
+                      </DropdownMenuSubContent>
+                    )}
                 </DropdownMenuSub>
                 <DropdownMenuSeparator />
                 <AlertDialog>
@@ -1192,11 +1460,36 @@ export function QuoteManager() {
       const search = String(filterValue).toLowerCase().trim();
       if (!search) return true;
       const q = row.original;
+      
+      const uInfo = (q.userId ? usersMap.get(q.userId) : null) || (q.responsable ? usersMap.get(q.responsable.trim().toLowerCase()) : null);
+
+      // Campos de búsqueda inteligente
       const id = (q.quoteNumber || "").toLowerCase();
       const client = (q.clientName || "").toLowerCase();
+      const clientPhone = (q.clientPhone || "").toLowerCase();
+      const clientEmail = (q.clientEmail || "").toLowerCase();
+      const clientAddress = (q.clientAddress || "").toLowerCase();
+      const serviceAddress = (q.serviceAddress || "").toLowerCase();
+      const equipoLugar = (q.equipoLugar || "").toLowerCase();
       const status = (q.status || "").toLowerCase();
       const service = (q.tipoServicio || "").toLowerCase();
-      return id.includes(search) || client.includes(search) || status.includes(search) || service.includes(search);
+      const workType = (q.tipoTrabajo || "").toLowerCase();
+      const invoice = (q.invoiceNumber || "").toLowerCase();
+      const responsableRaw = (q.responsable || "").toLowerCase();
+      const responsableName = (uInfo?.displayName || "").toLowerCase();
+      const jobTitle = (uInfo?.jobTitle || "").toLowerCase();
+      const department = (uInfo?.department || "").toLowerCase();
+      const shortDesc = (q.shortDescription || "").toLowerCase();
+      const itemsText = (q.items || []).map(i => `${i.description || ""} ${(i.subItems || []).map(s => s.description || "").join(" ")}`).join(" ").toLowerCase();
+      const observations = (q.observations || "").toLowerCase();
+      const totalStr = String(q.total || "");
+      const auditText = `${q.reactivatedAt || (q as any).wasReactivated ? "reactivada reactivado" : ""} ${q.reactivationReason || ""} ${q.rejectionReason || ""} ${q.rejectedBy || ""} ${q.reactivatedBy || ""}`.toLowerCase();
+
+      const searchableText = `${id} ${client} ${shortDesc} ${clientPhone} ${clientEmail} ${clientAddress} ${serviceAddress} ${equipoLugar} ${status} ${service} ${workType} ${invoice} ${responsableRaw} ${responsableName} ${jobTitle} ${department} ${itemsText} ${observations} ${totalStr} ${auditText}`;
+
+      // Búsqueda inteligente por términos separados
+      const searchTerms = search.split(/\s+/).filter(Boolean);
+      return searchTerms.every(term => searchableText.includes(term));
     },
     initialState: {
         pagination: {
@@ -1222,10 +1515,10 @@ export function QuoteManager() {
       <div className="flex justify-between items-center mb-4">
         <div className="flex items-center gap-2">
             <Input
-              placeholder="Buscar por ID o cliente..."
+              placeholder="Buscar por ID, cliente, responsable, depto, concepto..."
               value={filter}
               onChange={(e) => setFilter(e.target.value)}
-              className="max-w-sm"
+              className="max-w-md w-80"
             />
             <Popover>
                 <PopoverTrigger asChild>
@@ -1389,6 +1682,137 @@ export function QuoteManager() {
         quote={selectedQuote}
         userRole={role}
       />
+
+      {/* Modal de Confirmación de Rechazo / Reactivación de Cotización */}
+      <Dialog open={statusModalOpen} onOpenChange={setStatusModalOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <div className="flex items-center gap-2 text-amber-600 dark:text-amber-400">
+              <AlertTriangle className="h-5 w-5" />
+              <DialogTitle className="text-lg">
+                {pendingStatus === "Rechazada" 
+                  ? `Rechazar Cotización ${quoteForStatus?.quoteNumber}`
+                  : `Reactivar / Aceptar Cotización ${quoteForStatus?.quoteNumber}`}
+              </DialogTitle>
+            </div>
+            <DialogDescription className="text-xs pt-1">
+              {pendingStatus === "Rechazada"
+                ? "Al rechazar una cotización aceptada, la Orden de Trabajo vinculada pasará a estar cancelada/desactivada y se descartará de Cuentas por Cobrar."
+                : "Al reactivar/aceptar la cotización, se volverá a activar la Orden de Trabajo y se reincorporará a Cuentas por Cobrar."}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <div className="space-y-1.5">
+              <Label htmlFor="status-reason" className="text-xs font-semibold text-foreground">
+                {pendingStatus === "Rechazada" ? "¿Por qué se rechaza la cotización? *" : "Nota de modificación / reactivación *"}
+              </Label>
+              <Textarea
+                id="status-reason"
+                placeholder={pendingStatus === "Rechazada" ? "Ingresa el motivo del rechazo o cancelación..." : "Ingresa las razones o cambios para reactivar..."}
+                value={statusReason}
+                onChange={(e) => setStatusReason(e.target.value)}
+                className="min-h-[90px] text-sm"
+              />
+            </div>
+            <div className="text-[11px] text-muted-foreground bg-muted/40 p-2.5 rounded-lg border">
+              <p>👤 <strong>Usuario:</strong> {userProfile?.displayName || user?.displayName || user?.email || "Usuario"}</p>
+              <p>🕒 <strong>Fecha:</strong> {new Date().toLocaleString("es-MX")}</p>
+            </div>
+          </div>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => { setStatusModalOpen(false); setQuoteForStatus(null); setPendingStatus(null); setStatusReason(""); }}
+              disabled={isSubmittingStatus}
+            >
+              Cancelar
+            </Button>
+            <Button
+              type="button"
+              variant={pendingStatus === "Rechazada" ? "destructive" : "default"}
+              onClick={handleConfirmStatusModal}
+              disabled={isSubmittingStatus || !statusReason.trim()}
+              className="gap-1.5"
+            >
+              {isSubmittingStatus && <Loader2 className="h-4 w-4 animate-spin" />}
+              {pendingStatus === "Rechazada" ? "Confirmar Rechazo" : "Confirmar Aceptación"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Modal de Auditoría e Historial de Reactivación / Rechazo */}
+      <Dialog open={!!viewAuditQuote} onOpenChange={(open) => { if (!open) setViewAuditQuote(null); }}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <div className="flex items-center gap-2 text-blue-600 dark:text-blue-400">
+              <RotateCcw className="h-5 w-5" />
+              <DialogTitle className="text-lg">Historial de Auditoría - {viewAuditQuote?.quoteNumber}</DialogTitle>
+            </div>
+            <DialogDescription className="text-xs pt-1">
+              Línea de tiempo y trazabilidad de cambios de estado para {viewAuditQuote?.clientName}.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 py-2 text-sm">
+            {/* Timeline */}
+            <div className="relative pl-6 space-y-4 before:absolute before:left-2 before:top-2 before:bottom-2 before:w-0.5 before:bg-border">
+              {/* Evento 1: Creación */}
+              <div className="relative">
+                <div className="absolute -left-6 top-1 h-3.5 w-3.5 rounded-full bg-primary border-2 border-background" />
+                <p className="text-xs font-semibold text-foreground">Cotización Creada</p>
+                <p className="text-[11px] text-muted-foreground">
+                  Fecha: {viewAuditQuote?.date ? new Date(viewAuditQuote.date.replace(/-/g, "/")).toLocaleDateString("es-MX") : "N/A"} • Responsable: {viewAuditQuote?.responsable || "Lebaref"}
+                </p>
+              </div>
+
+              {/* Evento 2: Rechazo previo (si existió) */}
+              {viewAuditQuote?.rejectionReason && (
+                <div className="relative">
+                  <div className="absolute -left-6 top-1 h-3.5 w-3.5 rounded-full bg-rose-500 border-2 border-background" />
+                  <p className="text-xs font-semibold text-rose-600 dark:text-rose-400">Rechazada por el cliente</p>
+                  <p className="text-xs text-foreground bg-rose-50/80 dark:bg-rose-950/30 p-2 rounded-lg border border-rose-200 dark:border-rose-900 mt-1">
+                    "{viewAuditQuote.rejectionReason}"
+                  </p>
+                  <p className="text-[10px] text-muted-foreground mt-0.5">
+                    Registrado por: {viewAuditQuote.rejectedBy || "Usuario"} {viewAuditQuote.rejectedAt ? `el ${new Date(viewAuditQuote.rejectedAt).toLocaleString("es-MX")}` : ""}
+                  </p>
+                </div>
+              )}
+
+              {/* Evento 3: Reactivación */}
+              {viewAuditQuote?.reactivatedAt && (
+                <div className="relative">
+                  <div className="absolute -left-6 top-1 h-3.5 w-3.5 rounded-full bg-blue-500 border-2 border-background" />
+                  <p className="text-xs font-semibold text-blue-600 dark:text-blue-400">Reactivada y Aceptada</p>
+                  {viewAuditQuote.reactivationReason && (
+                    <p className="text-xs text-foreground bg-blue-50/80 dark:bg-blue-950/30 p-2 rounded-lg border border-blue-200 dark:border-blue-900 mt-1">
+                      "{viewAuditQuote.reactivationReason}"
+                    </p>
+                  )}
+                  <p className="text-[10px] text-muted-foreground mt-0.5">
+                    Reactivado por: {viewAuditQuote.reactivatedBy || "Usuario"} el {new Date(viewAuditQuote.reactivatedAt).toLocaleString("es-MX")}
+                  </p>
+                </div>
+              )}
+
+              {/* Evento 4: Estado Actual */}
+              <div className="relative">
+                <div className="absolute -left-6 top-1 h-3.5 w-3.5 rounded-full bg-emerald-500 border-2 border-background" />
+                <p className="text-xs font-semibold text-foreground">Estado Operativo Actual</p>
+                <div className="pt-1">
+                  <Badge variant="outline" className="text-xs font-bold px-2.5 py-0.5 bg-emerald-50 text-emerald-700 border-emerald-300">
+                    {viewAuditQuote?.status}
+                  </Badge>
+                </div>
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setViewAuditQuote(null)}>Cerrar</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

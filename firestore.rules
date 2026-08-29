@@ -35,6 +35,7 @@ service cloud.firestore {
     match /projects/{projectId} {
       allow create: if (hasPermission('projects') || isAdmin()) && request.resource.data.userId == request.auth.uid;
       allow list: if hasPermission('projects') || hasPermission('calendar') || isAdmin();
+      
       allow get: if isAdmin() || resource.data.userId == request.auth.uid;
       allow update, delete: if isAdmin() || resource.data.userId == request.auth.uid;
     }

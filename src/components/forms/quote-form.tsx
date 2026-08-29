@@ -28,6 +28,7 @@ import { Loader2, PlusCircle, Trash2, Check, ChevronsUpDown, History, FileSpread
 import * as XLSX from "xlsx";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogClose, DialogDescription } from "@/components/ui/dialog";
 import type { Quote } from "@/components/admin/quote-manager";
+import { getValidQuoteTransitions } from "@/components/admin/quote-manager";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
 import type { Service } from "@/components/admin/service-manager";
@@ -73,6 +74,7 @@ const quoteFormSchema = z.object({
   tipoServicio: z.string().optional(),
   tipoTrabajo: z.string().optional(),
   equipoLugar: z.string().optional(),
+  shortDescription: z.string().optional().or(z.literal('')),
   items: z.array(quoteItemSchema).min(1, "Debe agregar al menos un ítem."),
   expirationDate: z.string().optional(),
   rfc: z.string().optional(),
@@ -130,6 +132,7 @@ const defaultValues: QuoteFormValues = {
   tipoServicio: "Correctivo",
   tipoTrabajo: "",
   equipoLugar: "",
+  shortDescription: "",
   items: [],
   expirationDate: formatDate(expiration),
   rfc: "",
@@ -148,6 +151,7 @@ export function QuoteForm({
 }: QuoteFormProps) {
   const { user } = useAuth();
   const [userCustomPolicies, setUserCustomPolicies] = useState<string | null>(null);
+  const [userProfileName, setUserProfileName] = useState<string>("");
   const [isSavingPolicies, setIsSavingPolicies] = useState(false);
   const [services, setServices] = useState<Service[]>([]);
   const [spareParts, setSpareParts] = useState<SparePart[]>([]);
@@ -159,7 +163,7 @@ export function QuoteForm({
   const isAdmin = userRole === 'admin';
   const { toast } = useToast();
 
-  // Cargar las garantías personalizadas del usuario autenticado
+  // Cargar las garantías y el nombre de perfil del usuario autenticado
   useEffect(() => {
     if (!user?.uid) return;
     const userDocRef = doc(db, "users", user.uid);
@@ -167,6 +171,10 @@ export function QuoteForm({
       .then((snap) => {
         if (snap.exists()) {
           const data = snap.data();
+          const name = data.displayName || data.name || user.displayName || "";
+          if (name) {
+            setUserProfileName(name);
+          }
           const savedPolicies = data.customPolicies || data.preferences?.customPolicies;
           if (savedPolicies && typeof savedPolicies === "string") {
             setUserCustomPolicies(savedPolicies);
@@ -174,9 +182,9 @@ export function QuoteForm({
         }
       })
       .catch((err) => {
-        console.warn("No se pudieron cargar las garantías del usuario:", err);
+        console.warn("No se pudieron cargar los datos del usuario:", err);
       });
-  }, [user?.uid]);
+  }, [user?.uid, user?.displayName]);
 
   const toggleExpand = (index: number) => {
     setExpandedItems(prev => ({ ...prev, [index]: !prev[index] }));
@@ -308,6 +316,7 @@ export function QuoteForm({
           tipoServicio: quote.tipoServicio || "Correctivo",
           tipoTrabajo: quote.tipoTrabajo || "",
           equipoLugar: quote.equipoLugar || "",
+          shortDescription: quote.shortDescription || "",
           items: quote.items || [],
           expirationDate: quote.expirationDate ? new Date(quote.expirationDate).toISOString().split('T')[0] : formatDate(expiration),
           rfc: quote.rfc || "",
@@ -317,14 +326,15 @@ export function QuoteForm({
           iva: quote.iva ?? 16,
         });
       } else {
-        // When creating a new quote, use the default values with the user's custom policies.
+        // When creating a new quote, use the default values with the user's custom policies and profile name.
         form.reset({
           ...defaultValues,
+          responsable: userProfileName || user?.displayName || "",
           policies: userCustomPolicies || defaultPolicies,
         });
       }
     }
-  }, [quote, isOpen, form, userCustomPolicies]);
+  }, [quote, isOpen, form, userCustomPolicies, userProfileName, user?.displayName]);
 
   // Si las garantías del usuario se cargan después de abrir una nueva cotización, sincronizarlas
   useEffect(() => {
@@ -335,6 +345,16 @@ export function QuoteForm({
       }
     }
   }, [userCustomPolicies, isOpen, quote, form]);
+
+  // Sincronizar el nombre del responsable cuando cargue el perfil en una nueva cotización
+  useEffect(() => {
+    if (isOpen && !quote && userProfileName) {
+      const currentVal = form.getValues("responsable");
+      if (!currentVal) {
+        form.setValue("responsable", userProfileName);
+      }
+    }
+  }, [userProfileName, isOpen, quote, form]);
 
   const items = form.watch('items');
   const ivaPercentage = form.watch('iva');
@@ -478,32 +498,44 @@ export function QuoteForm({
                     )} />
                   </div>
                   <FormField name="responsable" control={form.control} render={({ field }) => (
-                     <FormItem>
-                       <FormLabel>Responsable (Contacto/Atención)</FormLabel>
-                       <FormControl><Input placeholder="Nombre del responsable" {...field} /></FormControl>
-                       <FormMessage />
-                     </FormItem>
-                  )} />
+                      <FormItem>
+                        <FormLabel>Responsable (Contacto/Atención)</FormLabel>
+                        <FormControl>
+                          <Input 
+                            placeholder="Nombre del responsable" 
+                            {...field} 
+                            readOnly 
+                            className="bg-muted/50 cursor-not-allowed font-medium text-foreground select-none" 
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                   )} />
                    <FormField name="clientEmail" control={form.control} render={({ field }) => (
                      <FormItem><FormLabel>Email (Opcional)</FormLabel><FormControl><Input type="email" {...field} /></FormControl><FormMessage /></FormItem>
                   )} />
                   <FormField name="rfc" control={form.control} render={({ field }) => (
                      <FormItem><FormLabel>RFC (Opcional)</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>
                   )} />
-                  <FormField name="status" control={form.control} render={({ field }) => (
-                    <FormItem><FormLabel>Estado</FormLabel>
-                      <Select onValueChange={field.onChange} value={field.value}>
-                        <FormControl><SelectTrigger><SelectValue /></SelectTrigger></FormControl>
-                        <SelectContent>
-                          <SelectItem value="Borrador">Borrador</SelectItem>
-                          <SelectItem value="Enviada">Enviada</SelectItem>
-                          <SelectItem value="Aceptada">Aceptada</SelectItem>
-                          <SelectItem value="Pagada">Pagada</SelectItem>
-                          <SelectItem value="Rechazada">Rechazada</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    <FormMessage /></FormItem>
-                  )} />
+                  <FormField name="status" control={form.control} render={({ field }) => {
+                    const currentStatus = quote?.status || "Borrador";
+                    const options = quote 
+                      ? Array.from(new Set([field.value, ...getValidQuoteTransitions(currentStatus)]))
+                      : ["Borrador", "Enviada"];
+
+                    return (
+                      <FormItem><FormLabel>Estado</FormLabel>
+                        <Select onValueChange={field.onChange} value={field.value}>
+                          <FormControl><SelectTrigger><SelectValue /></SelectTrigger></FormControl>
+                          <SelectContent>
+                            {options.map((opt) => (
+                              <SelectItem key={opt} value={opt}>{opt}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      <FormMessage /></FormItem>
+                    );
+                  }} />
                    <FormField name="clientAddress" control={form.control} render={({ field }) => (
                       <FormItem className="lg:col-span-3"><FormLabel>Dirección Fiscal del Cliente</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>
                   )} />
@@ -515,6 +547,9 @@ export function QuoteForm({
                   )} />
                   <FormField name="expirationDate" control={form.control} render={({ field }) => (
                     <FormItem><FormLabel>Fecha de Vencimiento</FormLabel><FormControl><Input type="date" {...field} /></FormControl><FormMessage /></FormItem>
+                  )} />
+                  <FormField name="shortDescription" control={form.control} render={({ field }) => (
+                    <FormItem><FormLabel>Breve descripción de la cotización</FormLabel><FormControl><Input placeholder="Ej. Mantenimiento Chiller Edificio B" {...field} value={field.value || ''} /></FormControl><FormMessage /></FormItem>
                   )} />
                 </div>
               </div>

@@ -393,6 +393,11 @@ export default function CuentasPorCobrarPage() {
     usersList.forEach(u => {
       if (u.uid) map.set(u.uid, u);
       if (u.displayName) map.set(u.displayName.trim().toLowerCase(), u);
+      if (u.userCode) {
+        map.set(u.userCode.trim().toLowerCase(), u);
+        map.set(`c${u.userCode.trim().toLowerCase()}`, u);
+      }
+      if (u.email) map.set(u.email.trim().toLowerCase(), u);
     });
     return map;
   }, [usersList]);
@@ -2010,7 +2015,7 @@ export default function CuentasPorCobrarPage() {
 
               {/* Table */}
               <div className="rounded-xl border overflow-x-auto shadow-sm">
-                <Table className="min-w-[1650px]">
+                <Table className="min-w-[1500px]">
                   <TableHeader className="bg-slate-50">
                     <TableRow>
                       <TableHead className="w-[110px] whitespace-nowrap">No. Cotización</TableHead>
@@ -2018,7 +2023,6 @@ export default function CuentasPorCobrarPage() {
                       <TableHead className="w-[120px] whitespace-nowrap">No. Factura</TableHead>
                       <TableHead className="min-w-[180px]">Cliente</TableHead>
                       <TableHead className="min-w-[140px]">Responsable</TableHead>
-                      <TableHead className="w-[120px] whitespace-nowrap">Puesto / Rol</TableHead>
                       <TableHead className="w-[120px] whitespace-nowrap">Departamento</TableHead>
                       <TableHead className="w-[110px] whitespace-nowrap">Servicio</TableHead>
                       <TableHead className="text-right w-[110px] whitespace-nowrap">Total</TableHead>
@@ -2034,7 +2038,7 @@ export default function CuentasPorCobrarPage() {
                   <TableBody>
                     {paginatedQuotes.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={16} className="h-28 text-center text-muted-foreground">
+                        <TableCell colSpan={15} className="h-28 text-center text-muted-foreground">
                           <div className="flex flex-col items-center justify-center gap-2 py-4">
                             <ListFilter className="h-8 w-8 text-muted-foreground/40" />
                             <p className="font-medium text-slate-600 dark:text-slate-400">No se encontraron cuentas por cobrar con los filtros seleccionados.</p>
@@ -2115,24 +2119,32 @@ export default function CuentasPorCobrarPage() {
                               <div className="font-semibold text-sm truncate">{quote.clientName || "—"}</div>
                             </TableCell>
 
-                            {/* Responsable */}
+                            {/* Responsable with Tooltip */}
                             <TableCell className="max-w-[140px] truncate">
-                              <span className="font-medium text-xs text-foreground">
-                                {quote.responsable || usersMap.get(quote.userId || "")?.displayName || "—"}
-                              </span>
-                            </TableCell>
-
-                            {/* Puesto / Rol */}
-                            <TableCell className="whitespace-nowrap">
                               {(() => {
                                 const uInfo = (quote.userId ? usersMap.get(quote.userId) : null) || (quote.responsable ? usersMap.get(quote.responsable.trim().toLowerCase()) : null);
-                                return uInfo?.jobTitle ? (
-                                  <Badge variant="secondary" className="font-normal text-xs bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300">
-                                    {uInfo.jobTitle}
-                                  </Badge>
-                                ) : (
-                                  <span className="text-xs text-muted-foreground">—</span>
-                                );
+                                const name = quote.responsable || uInfo?.displayName || "—";
+                                const jobTitle = uInfo?.jobTitle;
+
+                                if (jobTitle) {
+                                  return (
+                                    <TooltipProvider>
+                                      <Tooltip>
+                                        <TooltipTrigger asChild>
+                                          <span className="font-medium text-xs text-foreground cursor-help underline decoration-dotted decoration-muted-foreground/40 underline-offset-2 hover:text-primary transition-colors">
+                                            {name}
+                                          </span>
+                                        </TooltipTrigger>
+                                        <TooltipContent className="p-2 text-xs bg-slate-900 text-slate-100 border-slate-800 shadow-md">
+                                          <p className="font-semibold text-slate-200">
+                                            Puesto / Rol: <span className="font-normal text-amber-300">{jobTitle}</span>
+                                          </p>
+                                        </TooltipContent>
+                                      </Tooltip>
+                                    </TooltipProvider>
+                                  );
+                                }
+                                return <span className="font-medium text-xs text-foreground">{name}</span>;
                               })()}
                             </TableCell>
 
