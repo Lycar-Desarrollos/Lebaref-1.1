@@ -248,19 +248,38 @@ export function EventDialog({
             )}
           </div>
 
-          {/* Prioridad */}
-          <div className="space-y-1.5">
-            <Label className="text-xs font-semibold">Prioridad</Label>
-            <Select value={priority} onValueChange={(val: any) => setPriority(val)}>
-              <SelectTrigger className="rounded-xl text-xs">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent className="rounded-xl">
-                <SelectItem value="Baja">Baja</SelectItem>
-                <SelectItem value="Media">Media</SelectItem>
-                <SelectItem value="Alta">Alta (Urgente)</SelectItem>
-              </SelectContent>
-            </Select>
+          {/* Prioridad y Técnico Asignado */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label className="text-xs font-semibold">Prioridad</Label>
+              <Select value={priority} onValueChange={(val: any) => setPriority(val)}>
+                <SelectTrigger className="rounded-xl text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent className="rounded-xl">
+                  <SelectItem value="Baja">Baja</SelectItem>
+                  <SelectItem value="Media">Media</SelectItem>
+                  <SelectItem value="Alta">Alta (Urgente)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label className="text-xs font-semibold">Técnico Asignado</Label>
+              <Select value={technicianId} onValueChange={(val) => setTechnicianId(val)}>
+                <SelectTrigger className="rounded-xl text-xs">
+                  <SelectValue placeholder="Seleccionar técnico..." />
+                </SelectTrigger>
+                <SelectContent className="rounded-xl">
+                  <SelectItem value="none">Sin asignar</SelectItem>
+                  {technicians.map((tech) => (
+                    <SelectItem key={tech.id} value={tech.id}>
+                      {tech.name} {tech.userCode ? `(${tech.userCode})` : ""}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
 
           {/* Datos del Cliente */}
