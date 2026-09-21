@@ -1,3 +1,7 @@
-# Lebaref-1.2
+# Firebase Studio
 
-Sistema Integral de Gestión de Operaciones, Cotizaciones, Órdenes de Trabajo y Mantenimiento para Lebaref.
+This is a NextJS starter in Firebase Studio.
+# LEBAREF
+
+
+
