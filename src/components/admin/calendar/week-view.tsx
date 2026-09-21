@@ -19,6 +19,7 @@ interface WeekViewProps {
   onToggleComplete: (item: CalendarItem) => void;
   onDeleteItem: (item: CalendarItem) => void;
   onDropOT?: (otId: string, dateStr: string) => void;
+  onMoveItem?: (item: CalendarItem, targetDate: string, targetHour?: string) => void;
 }
 
 const HOURS = Array.from({ length: 14 }, (_, i) => i + 7); // 07:00 to 20:00 (7 AM to 8 PM)
@@ -34,6 +35,7 @@ export function WeekView({
   onToggleComplete,
   onDeleteItem,
   onDropOT,
+  onMoveItem,
 }: WeekViewProps) {
   // Live current time tracker
   const [now, setNow] = useState(new Date());
@@ -118,6 +120,70 @@ export function WeekView({
     return { top, height };
   };
 
+  // Calculate overlapping layout so multiple events in the same time slot share columns side-by-side
+  const getEventLayoutMap = (events: CalendarItem[]) => {
+    const sorted = [...events].sort((a, b) => {
+      const [ah, am] = (a.startTime || "09:00").split(":").map(Number);
+      const [bh, bm] = (b.startTime || "09:00").split(":").map(Number);
+      return (ah * 60 + (am || 0)) - (bh * 60 + (bm || 0));
+    });
+
+    const parsed = sorted.map((item) => {
+      const [sh, sm] = (item.startTime || "09:00").split(":").map(Number);
+      const [eh, em] = (item.endTime || "10:30").split(":").map(Number);
+      const start = sh * 60 + (sm || 0);
+      const end = Math.max(start + 30, eh * 60 + (em || 0));
+      return { item, start, end };
+    });
+
+    const clusters: (typeof parsed)[] = [];
+    let currentCluster: typeof parsed = [];
+    let clusterEnd = -1;
+
+    parsed.forEach((ev) => {
+      if (currentCluster.length === 0 || ev.start < clusterEnd) {
+        currentCluster.push(ev);
+        clusterEnd = Math.max(clusterEnd, ev.end);
+      } else {
+        clusters.push(currentCluster);
+        currentCluster = [ev];
+        clusterEnd = ev.end;
+      }
+    });
+    if (currentCluster.length > 0) {
+      clusters.push(currentCluster);
+    }
+
+    const layoutMap: Record<string, { colIndex: number; totalCols: number }> = {};
+    clusters.forEach((cluster) => {
+      const columns: number[] = [];
+      cluster.forEach((ev) => {
+        let placed = false;
+        for (let i = 0; i < columns.length; i++) {
+          if (columns[i] <= ev.start) {
+            columns[i] = ev.end;
+            layoutMap[ev.item.id] = { colIndex: i, totalCols: 1 };
+            placed = true;
+            break;
+          }
+        }
+        if (!placed) {
+          layoutMap[ev.item.id] = { colIndex: columns.length, totalCols: 1 };
+          columns.push(ev.end);
+        }
+      });
+
+      const totalCols = columns.length;
+      cluster.forEach((ev) => {
+        if (layoutMap[ev.item.id]) {
+          layoutMap[ev.item.id].totalCols = totalCols;
+        }
+      });
+    });
+
+    return layoutMap;
+  };
+
   // Current time red line calculation
   const currentHour = now.getHours();
   const currentMinute = now.getMinutes();
@@ -184,6 +250,24 @@ export function WeekView({
           return (
             <div
               key={`allday-${day.dateStr}`}
+              onDragOver={(e) => {
+                e.preventDefault();
+                e.dataTransfer.dropEffect = 'move';
+              }}
+              onDrop={(e) => {
+                e.preventDefault();
+                const itemJson = e.dataTransfer.getData('calendarItem');
+                if (itemJson && onMoveItem) {
+                  try {
+                    const item = JSON.parse(itemJson);
+                    if (item && item.date !== day.dateStr) {
+                      onMoveItem(item, day.dateStr);
+                    }
+                  } catch (err) {
+                    console.error("Failed to parse dragged calendar item:", err);
+                  }
+                }
+              }}
               className="p-1.5 border-r border-border/40 last:border-r-0 space-y-1 overflow-y-auto max-h-24"
             >
               {allDayEvents.map((item) => {
@@ -194,8 +278,18 @@ export function WeekView({
                   <Popover key={item.id}>
                     <PopoverTrigger asChild>
                       <div
+                        draggable
+                        onDragStart={(e) => {
+                          e.stopPropagation();
+                          e.dataTransfer.setData('calendarItem', JSON.stringify(item));
+                          e.dataTransfer.effectAllowed = 'move';
+                          (e.currentTarget as HTMLElement).style.opacity = '0.4';
+                        }}
+                        onDragEnd={(e) => {
+                          (e.currentTarget as HTMLElement).style.opacity = '1';
+                        }}
                         className={cn(
-                          "px-2 py-1 rounded-lg text-xs font-medium border flex items-center justify-between gap-1 cursor-pointer transition-all shadow-2xs",
+                          "px-2 py-1 rounded-lg text-xs font-medium border flex items-center justify-between gap-1 cursor-grab active:cursor-grabbing transition-all shadow-2xs",
                           catConfig.pillBg,
                           catConfig.pillBorder,
                           catConfig.pillText,
@@ -285,9 +379,25 @@ export function WeekView({
                 }}
                 onDrop={(e) => {
                   e.preventDefault();
+                  const rect = e.currentTarget.getBoundingClientRect();
+                  const dropY = e.clientY - rect.top;
+                  const hourDropped = Math.max(7, Math.min(20, Math.floor(dropY / HOUR_HEIGHT) + 7));
+                  const targetHour = `${String(hourDropped).padStart(2, "0")}:00`;
+
                   const otId = e.dataTransfer.getData('otId');
                   if (otId && onDropOT) {
                     onDropOT(otId, day.dateStr);
+                  }
+                  const itemJson = e.dataTransfer.getData('calendarItem');
+                  if (itemJson && onMoveItem) {
+                    try {
+                      const item: CalendarItem = JSON.parse(itemJson);
+                      if (item) {
+                        onMoveItem(item, day.dateStr, targetHour);
+                      }
+                    } catch (err) {
+                      console.error("Failed to parse dragged calendar item:", err);
+                    }
                   }
                   setDragOverDate(null);
                 }}
@@ -313,29 +423,46 @@ export function WeekView({
                 )}
 
                 {/* Timed Event Blocks */}
-                {timedEvents.map((item) => {
-                  const { top, height } = getEventPosition(item);
-                  const catConfig = CATEGORY_CONFIG[item.category] || CATEGORY_CONFIG.work_order;
-                  const isDone = item.completed || item.status === "Completada";
+                {(() => {
+                  const layoutMap = getEventLayoutMap(timedEvents);
+                  return timedEvents.map((item) => {
+                    const { top, height } = getEventPosition(item);
+                    const catConfig = CATEGORY_CONFIG[item.category] || CATEGORY_CONFIG.work_order;
+                    const isDone = item.completed || item.status === "Completada";
+                    const layout = layoutMap[item.id] || { colIndex: 0, totalCols: 1 };
+                    const widthPercent = 100 / layout.totalCols;
+                    const leftPercent = layout.colIndex * widthPercent;
 
-                  return (
-                    <Popover key={item.id}>
-                      <PopoverTrigger asChild>
-                        <div
-                          className={cn(
-                            "absolute left-1 right-1 rounded-xl p-2 cursor-pointer transition-all border shadow-sm flex flex-col justify-between overflow-hidden group/item backdrop-blur-md",
-                            catConfig.pillBg,
-                            catConfig.pillBorder,
-                            catConfig.pillText,
-                            isDone && "opacity-50"
-                          )}
-                          style={{
-                            top: `${top}px`,
-                            height: `${height}px`,
-                            borderLeftWidth: "4px",
-                            borderLeftColor: catConfig.color,
-                          }}
-                        >
+                    return (
+                      <Popover key={item.id}>
+                        <PopoverTrigger asChild>
+                          <div
+                            draggable
+                            onDragStart={(e) => {
+                              e.stopPropagation();
+                              e.dataTransfer.setData('calendarItem', JSON.stringify(item));
+                              e.dataTransfer.effectAllowed = 'move';
+                              (e.currentTarget as HTMLElement).style.opacity = '0.4';
+                            }}
+                            onDragEnd={(e) => {
+                              (e.currentTarget as HTMLElement).style.opacity = '1';
+                            }}
+                            className={cn(
+                              "absolute rounded-xl p-2 cursor-grab active:cursor-grabbing transition-all border shadow-sm flex flex-col justify-between overflow-hidden group/item backdrop-blur-md",
+                              catConfig.pillBg,
+                              catConfig.pillBorder,
+                              catConfig.pillText,
+                              isDone && "opacity-50"
+                            )}
+                            style={{
+                              top: `${top}px`,
+                              height: `${height}px`,
+                              left: layout.totalCols > 1 ? `calc(${leftPercent}% + 2px)` : "4px",
+                              width: layout.totalCols > 1 ? `calc(${widthPercent}% - 4px)` : "calc(100% - 8px)",
+                              borderLeftWidth: "4px",
+                              borderLeftColor: catConfig.color,
+                            }}
+                          >
                           <div className="min-w-0">
                             <div className="flex items-center justify-between gap-1">
                               <span className="font-mono text-[10px] font-semibold opacity-80">
@@ -387,7 +514,8 @@ export function WeekView({
                       </PopoverContent>
                     </Popover>
                   );
-                })}
+                });
+              })()}
               </div>
             );
           })}

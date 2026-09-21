@@ -489,6 +489,64 @@ export function MacOSCalendar() {
     }
   }, [toast]);
 
+  const handleMoveItem = useCallback(async (item: CalendarItem, targetDate: string, targetHour?: string) => {
+    try {
+      if (item.sourceCollection === "ordenes_de_trabajo" && item.id) {
+        const updateData: any = { scheduledDate: targetDate };
+        if (targetHour) {
+          updateData.scheduledTime = targetHour;
+          if (item.startTime && item.endTime) {
+            const [sh, sm] = item.startTime.split(":").map(Number);
+            const [eh, em] = item.endTime.split(":").map(Number);
+            const dur = (eh * 60 + (em || 0)) - (sh * 60 + (sm || 0));
+            if (dur > 0) {
+              const [th, tm] = targetHour.split(":").map(Number);
+              const endMin = th * 60 + (tm || 0) + dur;
+              const newEh = Math.floor(endMin / 60);
+              const newEm = endMin % 60;
+              updateData.scheduledEndTime = `${String(newEh).padStart(2, "0")}:${String(newEm).padStart(2, "0")}`;
+            }
+          }
+        }
+        await updateDoc(doc(db, "ordenes_de_trabajo", item.id), updateData);
+        toast({ title: "OT Reagendada ✓", description: `Movida al ${targetDate}${targetHour ? ` (${targetHour})` : ""}.` });
+      } else if (item.sourceCollection === "projects" && item.id) {
+        await updateDoc(doc(db, "projects", item.id), {
+          programmedDate: targetDate,
+        });
+        toast({ title: "Proyecto Reagendado ✓", description: `Movido al ${targetDate}.` });
+      } else if (item.sourceCollection === "calendar_reminders" && item.id) {
+        await updateDoc(doc(db, "calendar_reminders", item.id), {
+          date: targetDate,
+        });
+        toast({ title: "Recordatorio Reagendado ✓", description: `Movido al ${targetDate}.` });
+      } else if (item.id) {
+        // calendar_events
+        const updateData: any = { date: targetDate };
+        if (targetHour) {
+          updateData.startTime = targetHour;
+          if (item.startTime && item.endTime) {
+            const [sh, sm] = item.startTime.split(":").map(Number);
+            const [eh, em] = item.endTime.split(":").map(Number);
+            const dur = (eh * 60 + (em || 0)) - (sh * 60 + (sm || 0));
+            if (dur > 0) {
+              const [th, tm] = targetHour.split(":").map(Number);
+              const endMin = th * 60 + (tm || 0) + dur;
+              const newEh = Math.floor(endMin / 60);
+              const newEm = endMin % 60;
+              updateData.endTime = `${String(newEh).padStart(2, "0")}:${String(newEm).padStart(2, "0")}`;
+            }
+          }
+        }
+        await updateDoc(doc(db, "calendar_events", item.id), updateData);
+        toast({ title: "Evento Reagendado ✓", description: `Movido al ${targetDate}${targetHour ? ` (${targetHour})` : ""}.` });
+      }
+    } catch (err: any) {
+      console.error("Error moving calendar item:", err);
+      toast({ title: "Error al reagendar", description: err.message, variant: "destructive" });
+    }
+  }, [toast]);
+
   const cleanUndefined = (obj: Record<string, any>) => {
     const result: Record<string, any> = {};
     Object.keys(obj).forEach((key) => {
@@ -675,6 +733,10 @@ export function MacOSCalendar() {
             <CalendarSidebar
               currentDate={currentDate}
               onSelectDate={setCurrentDate}
+              onDrillDownToDay={(d) => {
+                setCurrentDate(d);
+                setViewMode("day");
+              }}
               selectedCategories={selectedCategories}
               onToggleCategory={handleToggleCategory}
               onSelectAllCategories={handleSelectAllCategories}
@@ -702,6 +764,7 @@ export function MacOSCalendar() {
               onToggleComplete={handleToggleComplete}
               onDeleteItem={handleDeleteItem}
               onDropOT={handleDropOT}
+              onMoveItem={handleMoveItem}
             />
           )}
 
@@ -719,6 +782,7 @@ export function MacOSCalendar() {
               onToggleComplete={handleToggleComplete}
               onDeleteItem={handleDeleteItem}
               onDropOT={handleDropOT}
+              onMoveItem={handleMoveItem}
             />
           )}
 
@@ -731,6 +795,8 @@ export function MacOSCalendar() {
               onEditItem={handleEditItem}
               onToggleComplete={handleToggleComplete}
               onDeleteItem={handleDeleteItem}
+              onDropOT={handleDropOT}
+              onMoveItem={handleMoveItem}
             />
           )}
 

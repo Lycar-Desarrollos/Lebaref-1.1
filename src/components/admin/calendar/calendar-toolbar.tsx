@@ -110,36 +110,40 @@ export function CalendarToolbar({
           )}
         </Button>
 
-        <div className="flex items-center bg-muted/40 rounded-xl p-0.5 border border-border/50">
+        {/* Hoy button (Google Calendar style pill with blue text and border) */}
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={onToday}
+          className="h-9 px-5 text-sm font-medium rounded-full border border-[#747775]/70 dark:border-neutral-500 bg-background hover:bg-neutral-100 dark:hover:bg-neutral-800 text-[#0b57d0] dark:text-sky-400 transition-colors shadow-none select-none"
+        >
+          Hoy
+        </Button>
+
+        {/* Previous and Next chevrons */}
+        <div className="flex items-center gap-1">
           <Button
             variant="ghost"
             size="icon"
             onClick={onPrev}
-            className="h-8 w-8 rounded-lg text-muted-foreground hover:text-foreground"
+            className="h-9 w-9 rounded-full text-[#444746] dark:text-neutral-300 hover:text-foreground hover:bg-neutral-100 dark:hover:bg-neutral-800"
+            title="Anterior"
           >
             <ChevronLeft className="h-4 w-4" />
           </Button>
 
           <Button
             variant="ghost"
-            size="sm"
-            onClick={onToday}
-            className="h-8 px-3 text-xs font-semibold rounded-lg hover:bg-background/80 hover:shadow-xs transition-all"
-          >
-            Hoy
-          </Button>
-
-          <Button
-            variant="ghost"
             size="icon"
             onClick={onNext}
-            className="h-8 w-8 rounded-lg text-muted-foreground hover:text-foreground"
+            className="h-9 w-9 rounded-full text-[#444746] dark:text-neutral-300 hover:text-foreground hover:bg-neutral-100 dark:hover:bg-neutral-800"
+            title="Siguiente"
           >
             <ChevronRight className="h-4 w-4" />
           </Button>
         </div>
 
-        <h2 className="text-base sm:text-lg font-bold text-foreground capitalize tracking-tight ml-2 truncate max-w-[200px] sm:max-w-none">
+        <h2 className="text-[22px] font-normal text-[#1f1f1f] dark:text-neutral-100 capitalize tracking-normal ml-3 truncate max-w-[220px] sm:max-w-none select-none">
           {getHeaderTitle()}
         </h2>
       </div>

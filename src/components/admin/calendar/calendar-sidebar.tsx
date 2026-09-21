@@ -30,6 +30,7 @@ import { cn } from "@/lib/utils";
 interface CalendarSidebarProps {
   currentDate: Date;
   onSelectDate: (date: Date) => void;
+  onDrillDownToDay?: (date: Date) => void;
   selectedCategories: Record<EventCategory, boolean>;
   onToggleCategory: (cat: EventCategory) => void;
   onSelectAllCategories: () => void;
@@ -46,6 +47,7 @@ interface CalendarSidebarProps {
 export function CalendarSidebar({
   currentDate,
   onSelectDate,
+  onDrillDownToDay,
   selectedCategories,
   onToggleCategory,
   onSelectAllCategories,
@@ -72,45 +74,52 @@ export function CalendarSidebar({
     return counts;
   }, [countSource]);
 
+
+
   return (
     <div className="w-full lg:w-72 flex flex-col gap-4 shrink-0">
-      {/* Mini Calendar Card (macOS frosted look) */}
-      <div className="bg-background/80 backdrop-blur-xl border border-border/70 rounded-2xl p-4 shadow-sm">
+      {/* Mini Calendar Card — Google Calendar Clean Style */}
+      <div className="bg-card border border-border/60 rounded-2xl p-3 shadow-xs">
         <Calendar
           mode="single"
           selected={currentDate}
+          month={currentDate}
+          onMonthChange={(m) => onSelectDate(m)}
           onSelect={(d) => d && onSelectDate(d)}
           locale={es}
-          className="w-full pointer-events-auto"
+          className="w-full pointer-events-auto p-0"
+          formatters={{
+            formatWeekdayName: (date) => ["D", "L", "M", "M", "J", "V", "S"][date.getDay()],
+          }}
           classNames={{
             months: "flex flex-col w-full",
-            month: "w-full",
-            caption: "flex items-center justify-between px-1 pb-3",
-            caption_label: "text-sm font-bold text-foreground capitalize",
-            nav: "flex items-center gap-1",
+            month: "w-full space-y-2",
+            caption: "flex items-center justify-between px-2 pt-1 pb-1",
+            caption_label: "text-xs font-semibold text-foreground capitalize tracking-tight",
+            nav: "flex items-center gap-0.5",
             nav_button:
-              "h-7 w-7 flex items-center justify-center bg-transparent p-0 opacity-60 hover:opacity-100 hover:bg-muted/60 rounded-full transition-all",
+              "h-7 w-7 flex items-center justify-center bg-transparent p-0 text-muted-foreground hover:text-foreground hover:bg-muted rounded-full transition-all",
             nav_button_previous: "relative",
             nav_button_next: "relative",
-            table: "w-full border-collapse",
-            head_row: "flex w-full mb-1",
+            table: "w-full border-collapse space-y-1",
+            head_row: "flex w-full justify-between mb-1",
             head_cell:
-              "flex-1 text-center text-[11px] font-semibold text-muted-foreground uppercase",
-            row: "flex w-full mt-1",
-            cell: "flex-1 flex items-center justify-center p-0",
-            day: "h-8 w-8 flex items-center justify-center text-xs font-medium rounded-full transition-all cursor-pointer hover:bg-muted/60 aria-selected:opacity-100",
+              "w-7 text-center text-[10px] font-medium text-muted-foreground/80 uppercase",
+            row: "flex w-full justify-between mt-1",
+            cell: "h-7 w-7 text-center text-xs p-0 relative flex items-center justify-center",
+            day: "h-7 w-7 p-0 flex items-center justify-center text-xs font-normal rounded-full transition-colors cursor-pointer hover:bg-muted text-foreground aria-selected:opacity-100",
             day_selected:
-              "bg-primary text-primary-foreground font-bold hover:bg-primary hover:text-primary-foreground shadow-sm",
+              "bg-[#0b57d0] text-white font-medium hover:bg-[#0b57d0] hover:text-white shadow-xs focus:bg-[#0b57d0] focus:text-white",
             day_today:
-              "text-primary font-extrabold underline underline-offset-2",
-            day_outside: "opacity-30",
+              "text-primary font-bold hover:bg-primary/10",
+            day_outside: "text-muted-foreground/30 hover:text-muted-foreground/60",
             day_disabled: "opacity-20 cursor-default",
           }}
         />
       </div>
 
       {/* Capas y Categorías de Calendario */}
-      <div className="bg-background/80 backdrop-blur-xl border border-border/70 rounded-2xl p-4 shadow-sm space-y-3">
+      <div className="bg-card border border-border/60 rounded-2xl p-4 shadow-xs space-y-3">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-1.5 text-xs font-bold text-foreground uppercase tracking-wider">
             <Layers className="h-3.5 w-3.5 text-primary" />
@@ -176,7 +185,7 @@ export function CalendarSidebar({
 
 
       {/* Bandeja de OTs Pendientes de Programar */}
-      <div className="bg-background/80 backdrop-blur-xl border border-border/70 rounded-2xl p-4 shadow-sm space-y-3">
+      <div className="bg-card border border-border/60 rounded-2xl p-4 shadow-xs space-y-3">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-1.5 text-xs font-bold text-foreground uppercase tracking-wider">
             <ClipboardList className="h-3.5 w-3.5 text-sky-500" />

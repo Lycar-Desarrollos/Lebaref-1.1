@@ -18,6 +18,7 @@ interface MonthViewProps {
   onToggleComplete: (item: CalendarItem) => void;
   onDeleteItem: (item: CalendarItem) => void;
   onDropOT?: (otId: string, dateStr: string) => void;
+  onMoveItem?: (item: CalendarItem, targetDateStr: string) => void;
 }
 
 export function MonthView({
@@ -30,6 +31,7 @@ export function MonthView({
   onToggleComplete,
   onDeleteItem,
   onDropOT,
+  onMoveItem,
 }: MonthViewProps) {
   const [dragOverDate, setDragOverDate] = useState<string | null>(null);
 
@@ -135,11 +137,20 @@ export function MonthView({
       </div>
 
       {/* Days Grid */}
-      <div className="grid grid-cols-7 flex-1 auto-rows-fr divide-x divide-y divide-border/50 bg-background/40">
+      <div
+        className="grid grid-cols-7 flex-1 divide-x divide-y divide-border/50 bg-background/40 overflow-hidden"
+        style={{
+          gridTemplateRows: `repeat(${calendarDays.length / 7}, minmax(0, 1fr))`,
+        }}
+      >
         {calendarDays.map((cell) => {
           const dayEvents = itemsByDate[cell.dateStr] || [];
-          const visibleEvents = dayEvents.slice(0, MAX_VISIBLE_EVENTS);
-          const hiddenCount = dayEvents.length - MAX_VISIBLE_EVENTS;
+          const selectedDateStr = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, "0")}-${String(currentDate.getDate()).padStart(2, "0")}`;
+          const isSelected = cell.dateStr === selectedDateStr;
+          // Keep maximum 3 items rendered per cell so row height NEVER changes or expands
+          const maxVisible = dayEvents.length > 3 ? 2 : 3;
+          const visibleEvents = dayEvents.slice(0, maxVisible);
+          const hiddenCount = dayEvents.length - maxVisible;
 
           return (
             <div
@@ -169,11 +180,23 @@ export function MonthView({
                 if (otId && onDropOT) {
                   onDropOT(otId, cell.dateStr);
                 }
+                const itemJson = e.dataTransfer.getData('calendarItem');
+                if (itemJson && onMoveItem) {
+                  try {
+                    const item = JSON.parse(itemJson);
+                    if (item && item.date !== cell.dateStr) {
+                      onMoveItem(item, cell.dateStr);
+                    }
+                  } catch (err) {
+                    console.error("Failed to parse dragged calendar item:", err);
+                  }
+                }
                 setDragOverDate(null);
               }}
               className={cn(
-                "min-h-[110px] p-2 transition-colors flex flex-col justify-between group relative cursor-pointer",
+                "h-full min-h-0 p-1.5 transition-colors flex flex-col justify-between group relative cursor-pointer overflow-hidden",
                 cell.isCurrentMonth ? "bg-background/60 hover:bg-muted/30" : "bg-muted/15 opacity-40 hover:opacity-75",
+                isSelected && !cell.isToday && "bg-primary/[0.03]",
                 dragOverDate === cell.dateStr && "ring-2 ring-inset ring-primary/40 bg-primary/5 opacity-100"
               )}
             >
@@ -190,6 +213,8 @@ export function MonthView({
                     "text-xs w-7 h-7 flex items-center justify-center rounded-full transition-all cursor-pointer select-none",
                     cell.isToday
                       ? "bg-primary text-primary-foreground font-extrabold shadow-md"
+                      : isSelected
+                      ? "bg-primary/15 text-primary font-bold ring-2 ring-primary/60"
                       : "font-semibold text-foreground/80 group-hover:text-primary group-hover:bg-primary/10"
                   )}
                 >
@@ -211,7 +236,7 @@ export function MonthView({
               </div>
 
               {/* Event Pills List */}
-              <div className="space-y-1 my-1 flex-1 overflow-hidden">
+              <div className="space-y-1 my-0.5 flex-1 min-h-0 overflow-hidden flex flex-col justify-start">
                 {visibleEvents.map((item) => {
                   const catConfig = CATEGORY_CONFIG[item.category] || CATEGORY_CONFIG.work_order;
                   const isDone = item.completed || item.status === "Completada" || item.status === "Completado";
@@ -221,9 +246,19 @@ export function MonthView({
                       <PopoverTrigger asChild>
                         <button
                           type="button"
+                          draggable
+                          onDragStart={(e) => {
+                            e.stopPropagation();
+                            e.dataTransfer.setData('calendarItem', JSON.stringify(item));
+                            e.dataTransfer.effectAllowed = 'move';
+                            (e.currentTarget as HTMLElement).style.opacity = '0.4';
+                          }}
+                          onDragEnd={(e) => {
+                            (e.currentTarget as HTMLElement).style.opacity = '1';
+                          }}
                           onClick={(e) => e.stopPropagation()}
                           className={cn(
-                            "w-full text-left px-2 py-1 rounded-lg text-[11px] font-medium border transition-all flex items-center gap-1.5 truncate shadow-2xs group/pill",
+                            "w-full text-left px-2 py-0.5 rounded-lg text-[11px] font-medium border transition-all flex items-center gap-1.5 truncate shadow-2xs group/pill cursor-grab active:cursor-grabbing shrink-0",
                             catConfig.pillBg,
                             catConfig.pillBorder,
                             catConfig.pillText,
@@ -272,7 +307,7 @@ export function MonthView({
                       <button
                         type="button"
                         onClick={(e) => e.stopPropagation()}
-                        className="text-[10px] font-bold text-primary hover:underline px-1.5 py-0.5 rounded bg-muted/60 w-full text-left"
+                        className="text-[10px] font-bold text-primary hover:bg-primary/10 px-2 py-0.5 rounded-md bg-muted/70 w-full text-left shrink-0 truncate transition-colors flex items-center gap-1"
                       >
                         +{hiddenCount} más...
                       </button>
@@ -289,7 +324,19 @@ export function MonthView({
                         {dayEvents.map((item) => (
                           <Popover key={item.id}>
                             <PopoverTrigger asChild>
-                              <div className="text-xs p-1.5 rounded-lg bg-muted/40 hover:bg-muted font-medium cursor-pointer flex items-center justify-between">
+                              <div
+                                draggable
+                                onDragStart={(e) => {
+                                  e.stopPropagation();
+                                  e.dataTransfer.setData('calendarItem', JSON.stringify(item));
+                                  e.dataTransfer.effectAllowed = 'move';
+                                  (e.currentTarget as HTMLElement).style.opacity = '0.4';
+                                }}
+                                onDragEnd={(e) => {
+                                  (e.currentTarget as HTMLElement).style.opacity = '1';
+                                }}
+                                className="text-xs p-1.5 rounded-lg bg-muted/40 hover:bg-muted font-medium cursor-grab active:cursor-grabbing flex items-center justify-between"
+                              >
                                 <span className="truncate">{item.title}</span>
                                 <span className="text-[10px] text-muted-foreground">
                                   {item.startTime || "Todo el día"}
