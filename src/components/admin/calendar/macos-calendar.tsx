@@ -138,11 +138,12 @@ export function MacOSCalendar() {
   }, [user, authIsLoading]);
 
   // 2. Subscribe to Work Orders (ordenes_de_trabajo)
+  // Estándar de permisos: solo admin ve todo; empleados ven solo sus propias OTs (por userId, igual que el resto del sistema).
   useEffect(() => {
     if (!user || authIsLoading || !userProfile) return;
 
     const col = collection(db, "ordenes_de_trabajo");
-    const isAdmin = userProfile.role === "admin" || userProfile.permissions?.work_orders || userProfile.permissions?.work_orders_all;
+    const isAdmin = userProfile.role === "admin";
     const q = isAdmin ? col : query(col, where("userId", "==", user.uid));
 
     const unsubOTs = onSnapshot(
@@ -159,11 +160,12 @@ export function MacOSCalendar() {
   }, [user, authIsLoading, userProfile]);
 
   // 3. Subscribe to Projects
+  // Estándar de permisos: solo admin ve todo; empleados ven solo sus propios proyectos.
   useEffect(() => {
     if (!user || authIsLoading || !userProfile) return;
 
     const col = collection(db, "projects");
-    const isAdmin = userProfile.role === "admin" || userProfile.permissions?.projects || userProfile.permissions?.calendar;
+    const isAdmin = userProfile.role === "admin";
     const q = isAdmin ? col : query(col, where("userId", "==", user.uid));
 
     const unsubProjects = onSnapshot(
@@ -201,11 +203,16 @@ export function MacOSCalendar() {
   }, [user, authIsLoading, userProfile]);
 
   // 5. Subscribe to Calendar Reminders
+  // Estándar de permisos: solo admin ve todos; empleados ven solo sus propios recordatorios.
   useEffect(() => {
-    if (!user || authIsLoading) return;
+    if (!user || authIsLoading || !userProfile) return;
+
+    const col = collection(db, "calendar_reminders");
+    const isAdmin = userProfile.role === "admin";
+    const remQuery = isAdmin ? col : query(col, where("userId", "==", user.uid));
 
     const unsubReminders = onSnapshot(
-      collection(db, "calendar_reminders"),
+      remQuery,
       (snapshot) => {
         const list = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }));
         setCalendarReminders(list);
@@ -217,7 +224,7 @@ export function MacOSCalendar() {
       }
     );
     return () => unsubReminders();
-  }, [user, authIsLoading]);
+  }, [user, authIsLoading, userProfile]);
 
   // Unified items mapping
   const allItems: CalendarItem[] = useMemo(() => {

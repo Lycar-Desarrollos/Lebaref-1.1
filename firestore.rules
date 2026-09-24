@@ -105,10 +105,24 @@ service cloud.firestore {
       allow update, delete: if isAdmin() || hasPermission('work_orders') || hasPermission('quotes') || resource.data.userId == request.auth.uid;
     }
     match /calendar_events/{eventId} {
-      allow read, write: if request.auth != null && (isAdmin() || hasPermission('calendar'));
+      // List: permiso calendar o admin (no se rompen queries existentes)
+      allow list: if request.auth != null && (isAdmin() || hasPermission('calendar'));
+      // Get individual: solo el dueño o admin
+      allow get: if request.auth != null && (isAdmin() || resource.data.userId == request.auth.uid);
+      // Crear: con permiso calendar, userId del doc debe ser el propio usuario
+      allow create: if request.auth != null && (isAdmin() || hasPermission('calendar')) && request.resource.data.userId == request.auth.uid;
+      // Editar / Borrar: solo el dueño o admin
+      allow update, delete: if request.auth != null && (isAdmin() || resource.data.userId == request.auth.uid);
     }
     match /calendar_reminders/{remId} {
-      allow read, write: if request.auth != null && (isAdmin() || hasPermission('calendar'));
+      // List: permiso calendar o admin (no se rompen queries existentes)
+      allow list: if request.auth != null && (isAdmin() || hasPermission('calendar'));
+      // Get individual: solo el dueño o admin
+      allow get: if request.auth != null && (isAdmin() || resource.data.userId == request.auth.uid);
+      // Crear: con permiso calendar, userId del doc debe ser el propio usuario
+      allow create: if request.auth != null && (isAdmin() || hasPermission('calendar')) && request.resource.data.userId == request.auth.uid;
+      // Editar / Borrar: solo el dueño o admin
+      allow update, delete: if request.auth != null && (isAdmin() || resource.data.userId == request.auth.uid);
     }
   }
 }
