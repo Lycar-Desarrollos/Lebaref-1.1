@@ -1,4 +1,7 @@
 
+// Forzar renderizado dinámico
+export const dynamic = "force-dynamic";
+
 import { Rss } from 'lucide-react';
 
 export default function BlogPage() {
