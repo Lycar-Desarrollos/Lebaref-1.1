@@ -1,7 +1,4 @@
 
-// Forzar renderizado dinámico — Firebase no puede pre-renderizarse en build time
-export const dynamic = "force-dynamic";
-
 "use client";
 
 import Link from "next/link";
