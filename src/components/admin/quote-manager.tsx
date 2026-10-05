@@ -248,10 +248,16 @@ const createOrUpdateTicketFromQuote = async (quote: Quote, currentUserId: string
     };
 
     // Datos de la OT (sin precios)
+    // Las sub-partidas se copian SIN precios (la OT es un documento operativo)
     const otItems = (quote.items || []).map(i => ({
       description: i.description || "",
       quantity: i.quantity || 1,
       unidad: i.unidad || 'PZA',
+      subItems: (i.subItems || []).map(s => ({
+        description: s.description || "",
+        quantity: s.quantity || 1,
+        unidad: s.unidad || 'PZA',
+      })),
     }));
   
     const quoteRef = doc(db, "quotes", quote.id);

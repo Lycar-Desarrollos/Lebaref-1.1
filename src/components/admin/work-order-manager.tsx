@@ -67,12 +67,19 @@ import { cn } from "@/lib/utils";
 import { useRouter } from "next/navigation";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
+export type WorkOrderSubItem = {
+  description: string;
+  quantity: number;
+  unidad?: string;
+};
+
 export type WorkOrderItem = {
   description: string;
   quantity: number;
   unit: string;
   observations?: string;
   unidad?: string;
+  subItems?: WorkOrderSubItem[];
 };
 
 export type WorkOrder = {
@@ -323,21 +330,36 @@ const downloadPDF = (ot: WorkOrder) => {
 
   // Tabla de ítems y actividades — Estrictamente SIN precios (Mapeo seguro)
   const itemsList = ot.items || [];
-  const tableBody: any[] = itemsList.length > 0
-    ? itemsList.map((item, i) => [
-        { content: i + 1,                               styles: { halign: "center" as const } },
-        { content: item.description || "—",             styles: { halign: "left" as const } },
+  const subRowStyle = { fontSize: 6.5, textColor: [70, 70, 70] as [number, number, number], fillColor: [248, 250, 255] as [number, number, number] };
+  const tableBody: any[] = [];
+  if (itemsList.length > 0) {
+    itemsList.forEach((item, i) => {
+      const subs = Array.isArray(item.subItems) ? item.subItems.filter((s) => s && s.description) : [];
+      const hasSubs = subs.length > 0;
+      tableBody.push([
+        { content: i + 1,                               styles: { halign: "center" as const, fontStyle: hasSubs ? "bold" as const : "normal" as const } },
+        { content: item.description || "—",             styles: { halign: "left" as const, fontStyle: hasSubs ? "bold" as const : "normal" as const } },
         { content: item.unidad || (item as any).unit || "PZA", styles: { halign: "center" as const } },
         { content: (item.quantity || 0).toLocaleString("es-MX", { minimumFractionDigits: 2 }), styles: { halign: "center" as const } },
-      ])
-    : [
-        [
-          { content: 1, styles: { halign: "center" as const } },
-          { content: ot.tipoServicio ? `${ot.tipoServicio} - ${ot.tipoTrabajo || "Servicio técnico"}` : "Servicio técnico operativo según cotización", styles: { halign: "left" as const } },
-          { content: "Servicio", styles: { halign: "center" as const } },
-          { content: "1.00", styles: { halign: "center" as const } },
-        ]
-      ];
+      ]);
+      // Sub-partidas con numeración jerárquica (1.1, 1.2, …) — sin precios
+      subs.forEach((sub, sIdx) => {
+        tableBody.push([
+          { content: `${i + 1}.${sIdx + 1}`, styles: { ...subRowStyle, halign: "center" as const } },
+          { content: `   ${sub.description}`, styles: { ...subRowStyle, halign: "left" as const } },
+          { content: sub.unidad || "PZA", styles: { ...subRowStyle, halign: "center" as const } },
+          { content: (sub.quantity || 0).toLocaleString("es-MX", { minimumFractionDigits: 2 }), styles: { ...subRowStyle, halign: "center" as const } },
+        ]);
+      });
+    });
+  } else {
+    tableBody.push([
+      { content: 1, styles: { halign: "center" as const } },
+      { content: ot.tipoServicio ? `${ot.tipoServicio} - ${ot.tipoTrabajo || "Servicio técnico"}` : "Servicio técnico operativo según cotización", styles: { halign: "left" as const } },
+      { content: "Servicio", styles: { halign: "center" as const } },
+      { content: "1.00", styles: { halign: "center" as const } },
+    ]);
+  }
 
   autoTable(doc, {
     startY: finalY + 3,
@@ -428,6 +450,45 @@ const downloadPDF = (ot: WorkOrder) => {
 
   const fileName = `${ot.otNumber}.pdf`;
   doc.save(fileName);
+};
+
+// ─── Enriquecer OT con sub-partidas de la cotización origen (OTs antiguas) ─────
+// Las OTs creadas antes de guardar sub-partidas no las tienen; se leen de la
+// cotización vinculada SOLO para el PDF (sin precios, sin modificar Firestore).
+const normalizeText = (s?: string) => (s || "").trim().replace(/\s+/g, " ").toUpperCase();
+
+const downloadPDFWithSubItems = async (ot: WorkOrder) => {
+  const items = ot.items || [];
+  const alreadyHasSubs = items.some((i) => Array.isArray(i.subItems) && i.subItems.length > 0);
+  if (!ot.quoteId || items.length === 0 || alreadyHasSubs) {
+    downloadPDF(ot);
+    return;
+  }
+  try {
+    const quoteSnap = await getDoc(doc(db, "quotes", ot.quoteId));
+    if (!quoteSnap.exists()) { downloadPDF(ot); return; }
+    const quoteItems: any[] = (quoteSnap.data() as any).items || [];
+    const enrichedItems = items.map((item, idx) => {
+      const target = normalizeText(item.description);
+      const match =
+        (quoteItems[idx] && normalizeText(quoteItems[idx].description) === target)
+          ? quoteItems[idx]
+          : quoteItems.find((q) => normalizeText(q?.description) === target);
+      const subs = Array.isArray(match?.subItems) ? match.subItems : [];
+      return {
+        ...item,
+        subItems: subs.map((s: any) => ({
+          description: s?.description || "",
+          quantity: s?.quantity || 1,
+          unidad: s?.unidad || "PZA",
+        })),
+      };
+    });
+    downloadPDF({ ...ot, items: enrichedItems });
+  } catch (e) {
+    console.warn("No se pudieron obtener sub-partidas de la cotización:", e);
+    downloadPDF(ot);
+  }
 };
 
 // ─── Main Component ───────────────────────────────────────────────────────────
@@ -823,7 +884,7 @@ export function WorkOrderManager() {
               <DropdownMenuSeparator />
 
               {/* Descarga de PDF */}
-              <DropdownMenuItem onClick={() => downloadPDF(wo)} className="cursor-pointer">
+              <DropdownMenuItem onClick={() => downloadPDFWithSubItems(wo)} className="cursor-pointer">
                 <Download className="mr-2 h-4 w-4 text-blue-600" /> Descargar PDF
               </DropdownMenuItem>
 

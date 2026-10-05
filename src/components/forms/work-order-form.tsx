@@ -38,10 +38,17 @@ import { Client } from "../admin/client-manager";
 import type { WorkOrder } from "@/components/admin/work-order-manager";
 
 // ─── Zod Schema (sin campos financieros) ─────────────────────────────────────
+const workOrderSubItemSchema = z.object({
+  description: z.string(),
+  quantity: z.coerce.number(),
+  unidad: z.string().optional(),
+});
+
 const workOrderItemSchema = z.object({
   description: z.string().min(1, "La descripción es requerida."),
   quantity: z.coerce.number().min(1, "La cantidad debe ser al menos 1."),
   unidad: z.string().optional(),
+  subItems: z.array(workOrderSubItemSchema).optional(),
 });
 
 const workOrderFormSchema = z.object({
@@ -162,6 +169,11 @@ export function WorkOrderForm({
             description: i.description,
             quantity: i.quantity,
             unidad: i.unidad || "PZA",
+            subItems: (i.subItems || []).map((s) => ({
+              description: s.description || "",
+              quantity: s.quantity || 1,
+              unidad: s.unidad || "PZA",
+            })),
           })),
           observations: workOrder.observations || "",
         });
@@ -331,8 +343,11 @@ export function WorkOrderForm({
               <div className="border p-4 rounded-lg">
                 <h3 className="text-lg font-medium mb-4">Ítems de la Orden de Trabajo</h3>
                 <div className="space-y-3">
-                  {fields.map((field, index) => (
-                    <div key={field.id} className="flex items-end gap-2">
+                  {fields.map((field, index) => {
+                    const subs = form.watch(`items.${index}.subItems`) || [];
+                    return (
+                    <div key={field.id} className="space-y-1.5">
+                    <div className="flex items-end gap-2">
                       <FormField name={`items.${index}.description`} control={form.control} render={({ field }) => (
                         <FormItem className="flex-grow"><FormLabel className="text-xs">Descripción</FormLabel>
                           <FormControl><Textarea placeholder="Descripción del ítem" className="min-h-[38px] h-9 resize-y py-1.5" {...field} /></FormControl>
@@ -352,7 +367,24 @@ export function WorkOrderForm({
                         <Trash2 className="h-4 w-4" />
                       </Button>
                     </div>
-                  ))}
+                    {subs.length > 0 && (
+                      <div className="ml-4 border-l-2 border-blue-200 pl-3 space-y-1">
+                        <p className="text-[11px] font-semibold uppercase text-blue-600">
+                          Sub-partidas ({subs.length})
+                        </p>
+                        {subs.map((s, sIdx) => (
+                          <div key={sIdx} className="flex items-start gap-2 text-xs text-muted-foreground">
+                            <span className="w-8 shrink-0 font-mono">{index + 1}.{sIdx + 1}</span>
+                            <span className="flex-grow">{s.description}</span>
+                            <span className="w-20 shrink-0 text-center">{s.unidad || "PZA"}</span>
+                            <span className="w-16 shrink-0 text-center">{s.quantity}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    </div>
+                    );
+                  })}
                 </div>
 
                 <div className="flex items-center gap-4 mt-4 pt-4 border-t">
